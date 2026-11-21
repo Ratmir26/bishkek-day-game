@@ -480,6 +480,7 @@
   }
 
   function showScreen(name) {
+    if (name !== 'postcard' && audio && audio.stopDrone) audio.stopDrone();
     if (!dom.intro) return;
     dom.intro.hidden = name !== 'intro';
     dom.district.hidden = name !== 'district';
@@ -905,7 +906,24 @@
     });
   }
 
+  /* Мобильный вид: карточка закрывает сцену, поэтому её можно убрать кнопкой и посмотреть/потрогать предметы. */
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest && e.target.closest('#peekBtn');
+    if (!b) return;
+    const on = !document.body.classList.contains('peek-scene');
+    document.body.classList.toggle('peek-scene', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.textContent = on ? 'К карточке' : 'Показать сцену';
+    hideGloss();
+  });
+  function resetPeek() {
+    document.body.classList.remove('peek-scene');
+    const b = document.getElementById('peekBtn');
+    if (b) { b.setAttribute('aria-pressed', 'false'); b.textContent = 'Показать сцену'; }
+  }
+
   function renderEvent() {
+    resetPeek();
     if (!engine) return;
     pending = null;
     const ev = engine.event;
@@ -1075,9 +1093,14 @@
     const list = [];
     Object.keys(BD.POSTCARDS || {}).forEach((k) => list.push(BD.POSTCARDS[k]));
     const soft = BD.SOFT_ENDINGS || {};
-    Object.keys(soft).forEach((kind) => Object.keys(soft[kind]).forEach((d) => { if (soft[kind][d] && soft[kind][d].id) list.push(soft[kind][d]); }));
+    Object.keys(soft).forEach((kind) => Object.keys(soft[kind]).forEach((d) => {
+      const c = soft[kind][d];
+      if (c && c.id) list.push(Object.assign({}, c, { district: c.district || (d === '_default' ? '' : d) }));
+    }));
     const seen = {};
-    return list.filter((c) => c && c.id && !seen[c.id] && (seen[c.id] = 1));
+    const order = { vostok5: 0, south: 1, center: 2 };
+    return list.filter((c) => c && c.id && !seen[c.id] && (seen[c.id] = 1))
+      .sort((x, y) => ((order[x.district] ?? 9) - (order[y.district] ?? 9)) || ((x.kind === 'soft') - (y.kind === 'soft')));
   }
   function collectedIds() {
     try { const g = JSON.parse(localStorage.getItem('bd_postcards') || '[]'); return Array.isArray(g) ? g : []; } catch (e) { return []; }
@@ -1150,6 +1173,7 @@
     if (audio) {
       audio.setAmbient(SCENE_AMBIENT[card.scene] || 'room', false);
       setTimeout(() => audio.playMotif('bata'), 500);
+      setTimeout(() => { if (!dom.postcard.hidden) audio.startDrone(); }, 900);
       audio.play(opts.soft ? 'next' : 'success');
     }
     dom.pcCard.style.animation = 'none';
@@ -1439,6 +1463,7 @@
   function init() {
     cacheDom();
     audio = new BD.AudioFX();
+    BD.audioFX = audio; // для автотестов
     renderer = new BD.Renderer($('scene'));
     renderer.setScene('traffic');
     renderer.setTime(CONFIG.dayStart);

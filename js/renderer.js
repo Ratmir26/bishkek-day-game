@@ -433,7 +433,8 @@
       this.canvas.height = Math.round(ch * this.dpr);
       this.cw = cw; this.ch = ch;
       this.scale = Math.max(cw / W, ch / H);
-      this.offX = (cw - W * this.scale) / 2;
+      // на узком портретном экране смещаем кадр вправо: главное в сценах лежит в правой половине
+      this.offX = (cw - W * this.scale) * (cw / ch < 0.8 ? 0.8 : 0.5);
       this.offY = (ch - H * this.scale) / 2;
     }
 
@@ -2264,6 +2265,15 @@
       for (let i = 0; i < 4; i++) { ctx.fillStyle = 'rgba(42,96,168,.85)'; ctx.fillRect(bx, by + 8 + i * 26, 150, 8); }
       ctx.restore();
       ctx.strokeStyle = '#2c2c2c'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(bx + 75, by + 4, 34, Math.PI, TAU); ctx.stroke();
+      // кастрюля с саркытом, завязанная платком: Апа Гуля собрала в дорогу
+      ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.beginPath(); ctx.ellipse(1040, 704, 50, 8, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#e9e4d6'; rrect(ctx, 1006, 654, 68, 50, 10); ctx.fill();
+      ctx.fillStyle = '#2f6a7a'; ctx.fillRect(1006, 668, 68, 6);
+      ctx.fillStyle = '#d9d2c0'; rrect(ctx, 1010, 644, 60, 14, 6); ctx.fill();
+      ctx.fillStyle = '#b5483c'; ctx.beginPath(); ctx.arc(1040, 640, 6, 0, TAU); ctx.fill();
+      ctx.strokeStyle = 'rgba(240,240,240,.28)'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+      for (let i = 0; i < 2; i++) { const u = mod(t * 0.45 + i * 0.5, 1); ctx.globalAlpha = 0.4 * (1 - u); ctx.beginPath(); ctx.moveTo(1034 + i * 10, 634 - u * 40); ctx.lineTo(1040 + i * 10 + Math.sin(t * 2 + i) * 4, 606 - u * 44); ctx.stroke(); }
+      ctx.globalAlpha = 1;
       // лампочка и пыль в луче
       ctx.fillStyle = 'rgba(255,255,255,.35)';
       for (let i = 0; i < 18; i++) { const x = 780 + hash(i * 1.9) * 560 + Math.sin(t * 0.4 + i) * 12, y = mod(hash(i * 2.9) * 500 + t * 6, 480) + 150; ctx.beginPath(); ctx.arc(x, y, 1.6 + (i % 3) * 0.5, 0, TAU); ctx.fill(); }
@@ -2339,6 +2349,13 @@
       ctx.fillStyle = '#efe6d2'; ctx.beginPath(); ctx.ellipse(1010, 640, 46, 10, 0, 0, TAU); ctx.fill();
       ctx.fillStyle = '#e8b04a'; for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.ellipse(985 + i * 13, 632 - (i % 2) * 5, 9, 7, 0, 0, TAU); ctx.fill(); }
 
+      if (win) {                                                               // именинный торт со свечами
+        ctx.fillStyle = '#f2e2c2'; rrect(ctx, 752, 624, 96, 32, 8); ctx.fill();
+        ctx.fillStyle = '#c9833c'; rrect(ctx, 752, 624, 96, 10, 6); ctx.fill();
+        ctx.fillStyle = '#b5483c'; for (let i = 0; i < 6; i++) { ctx.beginPath(); ctx.arc(762 + i * 15, 624, 4, 0, TAU); ctx.fill(); }
+        [776, 800, 824].forEach((cx, i) => { ctx.fillStyle = '#e2b24d'; ctx.fillRect(cx - 2, 600, 4, 24); const fl = 5 + Math.sin(t * 7 + i * 2) * 1.5; glow(ctx, cx, 596, 22, 'rgba(255,200,110,1)', 0.5); ctx.fillStyle = '#ffd36b'; ctx.beginPath(); ctx.ellipse(cx, 594, 3, fl, 0, 0, TAU); ctx.fill(); });
+      }
+      if (label === 'family') this.drawFolk(ctx, 800, 724, 1.25, { pose: 'sit', coat: '#3a566e', hat: 'kalpak', ph: 1.6 });   // папа за чаем
       // мама за столом
       this.drawFolk(ctx, 1210, 724, 1.25, { pose: 'sit', coat: '#7a4a6a', hat: 'scarf', scarf: '#c9833c', ph: 0.5, flip: true });
       const vig = ctx.createRadialGradient(W / 2, H / 2, 300, W / 2, H / 2, 900);

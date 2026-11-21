@@ -31,6 +31,7 @@
       this.pluckCache = {};
       this.tracks = Object.assign({}, BD.AUDIO_TRACKS || {});
       this.trackEl = null;
+      this.drone = null;
     }
 
     level() { return this.muted ? 0 : 0.5 * this.settings.volume / 0.8; }
@@ -67,7 +68,7 @@
     toggle() {
       this.setMuted(!this.muted);
       if (this.amb || this.ctx) this.applyAmbient();
-      if (this.muted) this.stopTrack();
+      if (this.muted) { this.stopTrack(); this.stopDrone(); }
       if (!this.muted) this.play('click');
       return this.muted;
     }
@@ -147,6 +148,7 @@
 
     setMusicOn(on) {
       this.settings.music = !!on;
+      if (!on) this.stopDrone();
       this.saveSettings();
       if (!on) this.stopTrack();
     }
@@ -329,6 +331,36 @@
       if (name === 'bata') {                        // низкий тянущийся тон под бату
         this.tone({ freq: 73.4, dur: 5.5, vol: 0.05, attack: 1.2, lp: 400 });
       }
+    }
+
+    /** Тёплый дрон под мотивом на экране открытки: ре-минорная квинта с октавой, медленное «дыхание», плавный вход и выход. */
+    startDrone() {
+      if (this.drone || this.muted || !this.settings.music || !this.ensure()) return;
+      const c = this.ctx, t0 = c.currentTime;
+      const out = c.createGain(); out.gain.setValueAtTime(0.0001, t0);
+      out.gain.exponentialRampToValueAtTime(0.085, t0 + 3.5);
+      const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 520; lp.Q.value = 2.2;   // резонанс «пустого» корпуса
+      lp.connect(out); out.connect(this.master);
+      const lfo = c.createOscillator(), lfoG = c.createGain();
+      lfo.frequency.value = 0.11; lfoG.gain.value = 140; lfo.connect(lfoG); lfoG.connect(lp.frequency); lfo.start(t0);
+      const oscs = [lfo];
+      [[73.4, 'sine', 0.55], [110, 'sine', 0.38], [146.8, 'triangle', 0.22], [174.6, 'sine', 0.12], [220.4, 'sine', 0.09], [73.9, 'triangle', 0.2]].forEach(([f, type, v]) => {
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = type; o.frequency.value = f; g.gain.value = v;
+        o.connect(g); g.connect(lp); o.start(t0); oscs.push(o);
+      });
+      this.drone = { out, oscs };
+    }
+
+    stopDrone() {
+      const d = this.drone;
+      if (!d) return;
+      this.drone = null;
+      const c = this.ctx, t = c.currentTime;
+      d.out.gain.cancelScheduledValues(t);
+      d.out.gain.setValueAtTime(Math.max(0.0001, d.out.gain.value), t);
+      d.out.gain.exponentialRampToValueAtTime(0.0001, t + 1.6);
+      d.oscs.forEach((o) => { try { o.stop(t + 1.8); } catch (e) { /* ignore */ } });
     }
 
     /** Подключить реальную запись комуза: BD.AUDIO_TRACKS = { nostalgia: 'audio/komuz.mp3' } до загрузки audio.js. */

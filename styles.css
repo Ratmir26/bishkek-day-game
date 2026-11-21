@@ -1870,3 +1870,18 @@ body.on-hotspot #scene { cursor: help; }
 .album-card.is-locked .album-text { font-style: normal; color: rgba(246, 242, 233, .6); }
 .album-count { margin-left: 6px; padding: 2px 8px; border-radius: 99px; background: rgba(242, 182, 75, .16); color: var(--gold); font-size: 11px; }
 body.album-open .play { visibility: hidden; }
+
+/* показать сцену на телефоне */
+.peek-btn { display: none; }
+@media (max-width: 720px) {
+  .peek-btn {
+    display: inline-flex; position: fixed; left: 14px; bottom: 16px; z-index: 35; pointer-events: auto;
+    padding: 9px 14px; border-radius: 99px; border: 1px solid rgba(242, 182, 75, .4); cursor: pointer;
+    background: rgba(10, 15, 19, .82); backdrop-filter: blur(14px); color: var(--gold); font: 600 12px/1 Inter, system-ui, sans-serif;
+  }
+  .play[hidden] .peek-btn { display: none; }
+  body.peek-scene .event-card, body.peek-scene .event-card * { pointer-events: none !important; }
+  body.peek-scene .event-card { opacity: 0 !important; transform: translateY(24px) !important; pointer-events: none !important; }
+  .event-card { transition: opacity .25s ease, transform .25s ease; }
+  .event-card { padding-bottom: 62px; }
+}
