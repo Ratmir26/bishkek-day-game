@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0b1114">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <meta name="description" content="Один день в Бишкеке — интерактивная история о бюджете, времени и нервах. 07:30–21:30, один день, один кошелёк.">
+  <title>Один день в Бишкеке — интерактивная история</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-tone="teal" data-screen="intro">
+  <canvas id="scene" aria-hidden="true"></canvas>
+  <div class="scene-shade" aria-hidden="true"></div>
+
+  <div class="sound-dock">
+    <label class="vol" title="Громкость">
+      <span class="vol-ico" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4Z"/><path d="M16 8.5a5 5 0 0 1 0 7"/></svg>
+      </span>
+      <input id="volRange" class="vol-range" type="range" min="0" max="100" value="70" aria-label="Громкость звука">
+    </label>
+    <button id="muteBtn" class="mute-btn" type="button" aria-pressed="false" aria-label="Выключить звук" title="Звук (M)">
+      <span id="muteIcon" class="mute-icon"></span>
+    </button>
+  </div>
+
+  <header id="hud" class="hud" hidden>
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="brand-text">
+        <span class="brand-name">Один день</span>
+        <span class="brand-city">в Бишкеке</span>
+      </span>
+    </div>
+
+    <div class="stats">
+      <div class="stat" data-stat="money">
+        <div class="stat-head">
+          <span class="stat-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M9 9h6M9 12h6M12 7.5v9"/></svg>
+          </span>
+          <span class="stat-label">Бюджет</span>
+          <span class="stat-value"><span id="moneyValue">2 500</span><small>сом</small></span>
+        </div>
+        <div class="bar"><i id="moneyBar" class="bar-fill" data-tone="low"></i></div>
+      </div>
+
+      <div class="stat" data-stat="energy">
+        <div class="stat-head">
+          <span class="stat-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13 2 4.5 13.5H10L9 22l8.5-12H12l1-8Z"/></svg>
+          </span>
+          <span class="stat-label">Энергия</span>
+          <span class="stat-value"><span id="energyValue">75</span><small>%</small></span>
+        </div>
+        <div class="bar"><i id="energyBar" class="bar-fill" data-tone="low"></i></div>
+      </div>
+
+      <div class="stat" data-stat="stress">
+        <div class="stat-head">
+          <span class="stat-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 12h4l2.5-6.5L13 18l2.5-6H22"/></svg>
+          </span>
+          <span class="stat-label">Стресс</span>
+          <span class="stat-value"><span id="stressValue">20</span><small>%</small></span>
+        </div>
+        <div class="bar"><i id="stressBar" class="bar-fill" data-tone="low"></i></div>
+      </div>
+
+      <div class="stat stat-time" data-stat="time">
+        <div class="stat-head">
+          <span class="stat-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg>
+          </span>
+          <span class="stat-label">Время</span>
+          <span class="stat-value" id="timeValue">07:30</span>
+        </div>
+        <div class="bar"><i id="timeBar" class="bar-fill" data-tone="time"></i></div>
+      </div>
+    </div>
+  </header>
+
+  <div id="sceneChip" class="scene-chip" hidden>
+    <span id="chipIcon" class="chip-icon"></span>
+    <span class="chip-text">
+      <span id="chipPlace" class="chip-place">Чуй / Советская</span>
+      <span id="chipTime" class="chip-time">07:30</span>
+    </span>
+  </div>
+
+  <main id="app">
+    <!-- ============================ ИНТРО ============================ -->
+    <section id="intro" class="screen intro">
+      <div class="intro-inner">
+        <p class="eyebrow"><span class="eyebrow-rule"></span> Интерактивная история · 07:30–21:30</p>
+        <h1 class="intro-title">Один день<br><em>в Бишкеке</em></h1>
+        <p class="intro-lead">
+          Один город, один кошелёк и слишком много дел. Выберите район — юг, центр или Восток-5 —
+          проживите обычный день от будильника до итогов и посмотрите, что останется к вечеру:
+          деньги, нервы или всё сразу.
+        </p>
+
+        <div class="intro-meta" aria-label="Параметры игры">
+          <span class="meta-chip"><i class="meta-dot"></i> 15+ решений</span>
+          <span class="meta-chip"><i class="meta-dot"></i> 3 района</span>
+          <span class="meta-chip"><i class="meta-dot"></i> 4 показателя</span>
+          <span class="meta-chip"><i class="meta-dot"></i> ~6 минут</span>
+          <span class="meta-chip"><i class="meta-dot"></i> 2500 сом на старте</span>
+        </div>
+
+        <div class="intro-actions">
+          <button id="startBtn" class="btn btn-primary" type="button">
+            Начать день <span class="btn-arrow" aria-hidden="true">→</span>
+          </button>
+          <span id="introBest" class="best-label" hidden></span>
+        </div>
+
+        <p class="intro-hint">Выбирайте мышью или клавишами <kbd>1</kbd>–<kbd>3</kbd>. Звук — <kbd>M</kbd>.</p>
+        <button class="album-link" type="button" data-album>Мои открытки <span data-album-count>0</span></button>
+
+        <div class="intro-facts">
+          <div class="fact">
+            <span class="fact-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M9 9h6M9 12h6M12 7.5v9"/></svg></span>
+            <strong>Бюджет</strong>
+            <small>2 500 сом. Тает быстрее, чем кажется.</small>
+          </div>
+          <div class="fact">
+            <span class="fact-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13 2 4.5 13.5H10L9 22l8.5-12H12l1-8Z"/></svg></span>
+            <strong>Энергия</strong>
+            <small>75%. Не бесконечная, хотя вы привыкли.</small>
+          </div>
+          <div class="fact">
+            <span class="fact-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 12h4l2.5-6.5L13 18l2.5-6H22"/></svg></span>
+            <strong>Стресс</strong>
+            <small>20%. Час пик уже знает о вас.</small>
+          </div>
+          <div class="fact">
+            <span class="fact-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg></span>
+            <strong>Время</strong>
+            <small>07:30–21:30. Один день без права на перемотку.</small>
+          </div>
+        </div>
+      </div>
+      <p class="intro-foot">Бишкек · Ала-Тоо · 7 Апреля · Орто-Сай · Восток-5 · всё совпадения случайны</p>
+    </section>
+
+    <!-- ========================= ВЫБОР РАЙОНА ======================== -->
+    <section id="district" class="screen district" hidden>
+      <div class="district-inner">
+        <div class="district-head">
+          <div class="district-heading">
+            <p class="eyebrow"><span class="eyebrow-rule"></span> Бишкек · 07:20</p>
+            <h2 class="district-title">Откуда вы <em>выезжаете?</em></h2>
+            <p class="district-lead">
+              Один город, три утра. Выберите район — от него зависят дорога,
+              стартовые нервы, вечерний закуп и пара знакомых деталей.
+            </p>
+          </div>
+          <button id="districtBackBtn" class="btn btn-ghost district-back" type="button">← Назад</button>
+        </div>
+
+        <div id="districtGrid" class="district-grid" role="group" aria-label="Выбор района"></div>
+
+        <p class="district-hint">Клавиши <kbd>1</kbd>–<kbd>3</kbd> — выбрать район. Юг, центр и Восток-5 — три разных Бишкека.</p>
+      </div>
+    </section>
+
+    <!-- ============================ ИГРА ============================ -->
+    <section id="play" class="screen play" hidden>
+      <article id="eventCard" class="event-card glass">
+        <div class="event-top">
+          <div class="event-top-left">
+            <span id="eventKicker" class="event-kicker">07:30 · Утро</span>
+            <span id="eventProgress" class="event-progress">01 / 15</span>
+          </div>
+          <span class="event-live"><i></i> Бишкек</span>
+        </div>
+
+        <h2 id="eventTitle" class="event-title">Будильник прозвенел дважды</h2>
+        <div id="eventText" class="event-text"></div>
+        <div id="eventDialogue" class="event-dialogue" hidden></div>
+        <div id="statusRow" class="status-row" hidden></div>
+        <div id="bondRow" class="bond-row" hidden></div>
+
+        <div id="choices" class="choices" role="group" aria-label="Варианты действий"></div>
+        <p id="choiceHint" class="choice-hint">Наведите на вариант — увидите, как он повлияет на день. Клавиши <kbd>1</kbd>–<kbd>4</kbd>.</p>
+
+        <div id="consequence" class="consequence" hidden>
+          <div class="consequence-head">
+            <span class="consequence-check" aria-hidden="true">✓</span>
+            <span>Ваш выбор</span>
+          </div>
+          <p id="consequenceText" class="consequence-text"></p>
+          <div id="applied" class="applied" aria-label="Изменения показателей"></div>
+          <button id="nextBtn" class="btn btn-next" type="button">Дальше →</button>
+        </div>
+      </article>
+    </section>
+
+    <!-- ============================ ИТОГИ ============================ -->
+    <section id="summary" class="screen summary" hidden>
+      <div class="summary-shell">
+        <header class="summary-head">
+          <div>
+            <p class="eyebrow"><span class="eyebrow-rule"></span> 21:30 · Итоги дня</p>
+            <h2>День прожит. <em>Считаем.</em></h2>
+          </div>
+          <span id="bestLabel" class="best-label">Лучший результат: 0/100</span>
+        </header>
+
+        <div class="summary-grid">
+          <section class="panel verdict-panel">
+            <div id="summaryScoreRing" class="score-ring" style="--p:0">
+              <div class="score-inner">
+                <span id="summaryScore">0</span>
+                <small>/100</small>
+              </div>
+            </div>
+            <div class="verdict-copy">
+              <span class="panel-label">Вердикт дня</span>
+              <h3 id="summaryVerdictTitle">Нормальный бишкекский день</h3>
+              <p id="summaryVerdictText"></p>
+            </div>
+          </section>
+
+          <section class="panel money-panel">
+            <span class="panel-label">Финансовый итог</span>
+            <div class="money-big"><span id="sumBudget">0</span><small>сом</small></div>
+            <div class="money-rows">
+              <div><span>Потрачено</span><strong id="sumSpent">0 сом</strong></div>
+              <div><span>Заработано</span><strong id="sumEarned" class="pos">0 сом</strong></div>
+              <div><span>Сэкономлено</span><strong id="sumSaved" class="pos">0 сом</strong></div>
+            </div>
+          </section>
+
+          <section id="postcardPanel" class="panel postcard-panel" hidden>
+            <div class="panel-head">
+              <span class="panel-label">Открытка памяти</span>
+              <span class="panel-note">останется в коллекции</span>
+            </div>
+            <div id="postcardMount" class="postcard-mount"></div>
+          </section>
+
+          <section id="bondsPanel" class="panel bonds-panel" hidden>
+            <div class="panel-head">
+              <span class="panel-label">Кто был рядом</span>
+              <span class="panel-note">за этот день</span>
+            </div>
+            <div id="summaryBonds" class="summary-bonds"></div>
+            <div class="memory-head">
+              <span class="panel-label">Память дня</span>
+              <span class="panel-note"><strong id="summaryMemoryCount">0</strong> предметов</span>
+            </div>
+            <div id="summaryMemory" class="summary-memory"></div>
+          </section>
+
+          <section class="panel chart-panel">
+            <div class="panel-head">
+              <span class="panel-label">Кривая стресса</span>
+              <span class="panel-note">пик <strong id="sumPeak">0%</strong></span>
+            </div>
+            <canvas id="stressChart" class="stress-chart" aria-label="График изменения стресса за день"></canvas>
+          </section>
+
+          <section class="panel metrics-panel">
+            <div class="metric">
+              <span class="metric-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13 2 4.5 13.5H10L9 22l8.5-12H12l1-8Z"/></svg></span>
+              <span class="metric-label">Энергия к вечеру</span>
+              <strong id="sumEnergy">0%</strong>
+            </div>
+            <div class="metric">
+              <span class="metric-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg></span>
+              <span class="metric-label">Дома оказались в</span>
+              <strong id="sumHome">21:30</strong>
+            </div>
+            <div class="metric metric-route">
+              <span class="metric-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 21 10 3M16 21 14 3"/><path d="M12 5v3M12 11v3M12 17v3"/></svg></span>
+              <span class="metric-label">Маршрут дня</span>
+              <strong id="sumRoute">Юг → центр → дом</strong>
+            </div>
+            <div class="metric">
+              <span class="metric-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+              <span class="metric-label">Решений принято</span>
+              <strong id="sumEvents">0 из 15</strong>
+            </div>
+            <div class="metric">
+              <span class="metric-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3 5 6v5c0 5 3.5 8.5 7 10 3.5-1.5 7-5 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg></span>
+              <span class="metric-label">Открыто ачивок</span>
+              <strong id="summaryBadgeCount">0 из 0</strong>
+            </div>
+          </section>
+
+          <section class="panel badges-panel">
+            <div class="panel-head">
+              <span class="panel-label">Ачивки дня</span>
+              <span class="panel-note">что осталось после 21:30</span>
+            </div>
+            <div id="summaryBadges" class="badges-grid"></div>
+          </section>
+        </div>
+
+        <div class="summary-actions">
+          <button id="playAgainBtn" class="btn btn-primary" type="button">Сыграть ещё раз <span class="btn-arrow" aria-hidden="true">↻</span></button>
+          <button id="albumBtn" class="btn btn-ghost" type="button">Открытки <span id="albumCount" class="album-count">0</span></button>
+          <button id="districtBtn" class="btn btn-ghost" type="button">Другой район</button>
+          <button id="menuBtn" class="btn btn-ghost" type="button">Главное меню</button>
+        </div>
+        <p class="summary-note">Все события и последствия предопределены. Никаких API, подписок и «ещё пяти минут».</p>
+      </div>
+    </section>
+
+    <!-- ============================ GAME OVER ============================ -->
+    <section id="gameover" class="screen gameover" hidden>
+      <div class="go-shell">
+        <span id="gameoverIcon" class="go-icon" aria-hidden="true"></span>
+        <p id="gameoverKicker" class="go-kicker">Финал</p>
+        <h2 id="gameoverTitle">Бюджет ушёл в минус</h2>
+        <p id="gameoverText" class="go-text"></p>
+        <div class="go-stats">
+          <div><span>Бюджет</span><strong id="goBudget">0 сом</strong></div>
+          <div><span>Энергия</span><strong id="goEnergy">0%</strong></div>
+          <div><span>Стресс</span><strong id="goStress">0%</strong></div>
+          <div><span>Время</span><strong id="goTime">07:30</strong></div>
+        </div>
+        <p id="goLast" class="go-last"></p>
+        <div id="softPostcard" class="soft-postcard"></div>
+        <div class="go-tip">
+          <span class="go-tip-label">На память</span>
+          <span id="gameoverTip"></span>
+        </div>
+        <div class="go-actions">
+          <button id="restartBtn" class="btn btn-primary" type="button">Попробовать снова <span class="btn-arrow" aria-hidden="true">↻</span></button>
+          <button id="goDistrictBtn" class="btn btn-ghost" type="button">Другой район</button>
+          <button id="goMenuBtn" class="btn btn-ghost" type="button">В меню</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="vignette" class="vignette" hidden role="dialog" aria-modal="true" aria-label="Пауза во дворе">
+    <div class="vignette-card">
+      <span id="vignetteWho" class="vignette-who"></span>
+      <span id="vignetteKicker" class="vignette-kicker"></span>
+      <p id="vignetteText" class="vignette-text"></p>
+      <div class="vignette-track" aria-hidden="true"><i id="vignetteBar" class="vignette-bar"></i></div>
+      <button id="vignetteSkip" class="btn btn-ghost vignette-skip" type="button">Не ждать</button>
+    </div>
+  </div>
+
+  <div id="album" class="album" hidden role="dialog" aria-modal="true" aria-label="Коллекция открыток памяти">
+    <div class="album-shell">
+      <header class="album-head">
+        <div>
+          <p class="eyebrow"><span class="eyebrow-rule"></span> Коллекция</p>
+          <h2 class="album-title">Открытки <em>памяти</em></h2>
+        </div>
+        <button id="albumCloseBtn" class="btn btn-ghost" type="button">← Назад</button>
+      </header>
+      <div id="albumGrid" class="album-grid"></div>
+      <div class="album-memory-wrap">
+        <div class="panel-head">
+          <span class="panel-label">Предметы, которые остались</span>
+          <span class="panel-note">собираются по ходу истории</span>
+        </div>
+        <div id="albumMemory" class="summary-memory"></div>
+      </div>
+      <div class="album-foot">
+        <button class="btn btn-primary" type="button" data-album-close>Вернуться</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="floatLayer" class="float-layer" aria-hidden="true"></div>
+
+  <script src="js/events/base.js"></script>
+  <script src="js/events/culture.js"></script>
+  <script src="js/events/districts.js"></script>
+  <script src="js/events/day.js"></script>
+  <script src="js/events/badges.js"></script>
+  <script src="js/events/pivots.js"></script>
+  <script src="js/events/shared.js"></script>
+  <script src="js/events/south.js"></script>
+  <script src="js/events/center.js"></script>
+  <script src="js/events/vostok5.js"></script>
+  <script src="js/events/story.js"></script>
+  <script src="js/events/verdicts.js"></script>
+  <script src="js/events/index.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
