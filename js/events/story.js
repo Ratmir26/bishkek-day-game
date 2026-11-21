@@ -95,6 +95,53 @@
       ending: 'noTable'
     },
 
+    /* --- центр: Фрунзе в кармане --- */
+    centerSong: {
+      id: 'center-song',
+      title: 'Песня вернулась',
+      subtitle: 'Старый двор · арык и комуз',
+      kicker: 'Открытка памяти · Центр',
+      stamp: 'ФРУНЗЕ · 21:30',
+      tone: 'gold',
+      icon: 'sound',
+      scene: 'old_center_courtyard',
+      bata: 'Пока кто-то играет, город помнит.',
+      text: 'Низкий двор за ЦУМом, урюк у ворот и вода в арыке. Нурлан играет ту самую мелодию, ' +
+        'а вы сидите рядом и узнаёте её не ушами, а где-то глубже. Фотография деда больше не ' +
+        'просто бумажка в кармане — у неё есть адрес, голос и этот вечер.',
+      ending: 'song'
+    },
+    centerPhoto: {
+      id: 'center-photo',
+      title: 'Фотография в кармане',
+      subtitle: 'Центр · адрес, который остался',
+      kicker: 'Открытка памяти · Центр',
+      stamp: 'ФРУНЗЕ · 21:30',
+      tone: 'teal',
+      icon: 'photo',
+      scene: 'memory_corner',
+      bata: 'Адрес — ещё не встреча. Но уже не случайность.',
+      text: 'Вы узнали про двор, услышали про арык и даже подержали в руках чужую кассету. ' +
+        'Но вечер сложился иначе: работа, дела, завтра. Фотография лежит в кармане, и на обороте ' +
+        'всё ещё написано «Кирова, двор 12». Теперь вы знаете, что это значит.',
+      ending: 'photo'
+    },
+    centerCity: {
+      id: 'center-city',
+      title: 'Город без тебя',
+      subtitle: 'Ала-Тоо · вечер, который прошёл мимо',
+      kicker: 'Открытка памяти · Центр',
+      stamp: 'АЛА-ТОО · 21:30',
+      tone: 'coral',
+      icon: 'night',
+      scene: 'alatoo_twilight',
+      bata: 'Город не обижается. Он просто живёт дальше.',
+      text: 'Фонтаны у ЦУМ включили подсветку, клиент получил презентацию, премия капнула на карту. ' +
+        'А где-то за площадью, в старом дворе, кто-то играл на комузе для пустого тапчана. ' +
+        'Вы успели всё, кроме самого главного. Впрочем, адрес у вас остался.',
+      ending: 'city'
+    },
+
     /* --- тихие финалы: день решил остановиться, двор — нет --- */
     softTapchan: {
       id: 'soft-tapchan',
@@ -183,6 +230,51 @@
         'перед вами лепёшку и курут и сказала: «В дорогу собираются не деньгами». Эрлан пододвинул вам пиалу.',
       items: ['kurutBag']
     },
+    softCenterCourtyard: {
+      id: 'soft-center-courtyard',
+      title: 'Тапчан у арыка',
+      subtitle: 'Тихий финал · центр, курпача',
+      kicker: 'Тихий финал · Центр',
+      stamp: 'ФРУНЗЕ · ПОЗДНО',
+      tone: 'teal',
+      icon: 'night',
+      scene: 'old_center_courtyard',
+      bata: 'Спи, сынок. Арык шумит и без тебя.',
+      text: 'Вы прилегли на тапчан на минуту и не заметили, как уснули. Нурлан укрыл вас курпачой, ' +
+        'убрал комуз в чехол и оставил на краю пиалу с чаем. Арык шумел всю ночь, а двор ' +
+        'никуда не торопился. День закончился раньше — и никто не считал это поражением.',
+      items: ['kurpacha']
+    },
+    softCenterFountains: {
+      id: 'soft-center-fountains',
+      title: 'Свет у фонтана',
+      subtitle: 'Тихий финал · Ала-Тоо',
+      kicker: 'Тихий финал · Центр',
+      stamp: 'АЛА-ТОО · ПОЗДНО',
+      tone: 'gold',
+      icon: 'sun',
+      scene: 'alatoo_twilight',
+      bata: 'Не всё надо успеть сегодня.',
+      text: 'Вы дошли до Ала-Тоо и сели у фонтана. Вода падала обратно в чашу, подсветка меняла цвет, ' +
+        'а вы просто смотрели. Фотография лежала в кармане, и впервые за день никто ничего ' +
+        'от вас не требовал. Город никуда не денется. И двор тоже.',
+      items: ['frunzePhoto']
+    },
+    softCenterChai: {
+      id: 'soft-center-chai',
+      title: 'Чай у арыка',
+      subtitle: 'Тихий финал · двор без денег',
+      kicker: 'Тихий финал · Центр',
+      stamp: 'ФРУНЗЕ · ЧАЙ',
+      tone: 'coral',
+      icon: 'coffee',
+      scene: 'old_center_courtyard',
+      bata: 'Долг отдашь. Сначала поешь.',
+      text: 'Кошелёк опустел раньше вечера, но Нурлан сделал вид, что ничего не заметил. ' +
+        'Он налил чай, бабушка подвинула лепёшку, а кассета осталась лежать на тапчане между вами. ' +
+        'В старом дворе это называется не помощь, а «так принято».',
+      items: ['melodyCassette']
+    },
     softGeneric: {
       id: 'soft-generic',
       title: 'День, который решил остановиться',
@@ -201,11 +293,27 @@
 
   BD.POSTCARD_ORDER = [
     'family', 'kitchen', 'surprise',
-    'southBata', 'southPride', 'southNoTable'
+    'southBata', 'southPride', 'southNoTable',
+    'centerSong', 'centerPhoto', 'centerCity'
   ];
 
   BD.pickPostcard = function (state) {
     if (!state) return null;
+
+    if (state.district === 'center') {
+      if (state.has('endingSong')) return BD.POSTCARDS.centerSong;
+      if (state.has('endingCity')) return BD.POSTCARDS.centerCity;
+      if (state.has('endingPhoto')) return BD.POSTCARDS.centerPhoto;
+      /* Мягкий запасной путь: если финальный выбор не записался, смотрим на собранную историю. */
+      const b = state.bonds || {};
+      if (state.has('choseCourtyard') && state.has('keptCassette') && (b.nurlan || 0) >= 4) {
+        return BD.POSTCARDS.centerSong;
+      }
+      if (state.has('foundPhoto') || state.has('erkindikLead') || state.has('metClassmate')) {
+        return BD.POSTCARDS.centerPhoto;
+      }
+      return BD.POSTCARDS.centerCity;
+    }
 
     if (state.district === 'south') {
       if (state.has('endingBata')) return BD.POSTCARDS.southBata;
@@ -230,6 +338,11 @@
   };
 
   BD.pickSoftPostcard = function (state, kind) {
+    if (state && state.district === 'center') {
+      if (kind === 'exhaustion') return BD.POSTCARDS.softCenterCourtyard;
+      if (kind === 'burnout') return BD.POSTCARDS.softCenterFountains;
+      if (kind === 'broke' || kind === 'bankrupt') return BD.POSTCARDS.softCenterChai;
+    }
     if (state && state.district === 'south') {
       if (kind === 'exhaustion') return BD.POSTCARDS.softSouthKitchen;
       if (kind === 'burnout') return BD.POSTCARDS.softSouthPanorama;

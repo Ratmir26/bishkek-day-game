@@ -1,13 +1,12 @@
-/* ==========================================================================
-   «Один день в Бишкеке» — развороты fail-forward
-   Модуль контента. Работает с общим пространством BD.
-   ========================================================================== */
+/* Fail-forward: пропущенный транспорт, нехватка денег и сюжетные развороты (BD.PIVOTS). */
 (function (root) {
   'use strict';
   const BD = (root.BD = root.BD || {});
-  const T = BD.T || (BD.T = (h, m) => h * 60 + m);
+  const T = (h, m = 0) => h * 60 + m;
 
-const leftLate = (s) => s.has('cookedBreakfast');
+  /* 1. Транспорт утром: если завтрак затянулся, остановка встречает уходящим транспортом.
+        Это не конец игры, а развилка: сосед, пешком, такси (BD.PIVOTS['missed-ride']). */
+  const leftLate = (s) => s.has('cookedBreakfast');
 
   function makeMissable(districtId, choiceId, cfg) {
     const list = BD.getDistrict(districtId).events.traffic.choicesReplace;
@@ -185,7 +184,7 @@ const leftLate = (s) => s.has('cookedBreakfast');
           id: 'bakyt', title: 'Согласиться на подвоз от Бакыта',
           desc: 'Бесплатно, с радио и с обязательными новостями двора.',
           minutes: 15, fx: restoreTo(200, { energy: 2, stress: -4 }),
-          flags: ['rodeWithNeighbor', 'owesBakyt'],
+          flags: ['rodeWithNeighbor', 'owesBakyt'], bonds: { bakyt: 1 },
           result: 'Бакыт довёз вас до подъезда, рассказал всё про новый шлагбаум и уговорил взять двести сом ' +
             'на хлеб: «Вернёшь, когда вернёшь». Во дворе так и живут.'
         },
@@ -296,7 +295,7 @@ const leftLate = (s) => s.has('cookedBreakfast');
           id: 'bakyt', title: 'Поехать с Бакытом по Чуй',
           desc: 'Бесплатно, с радио и подробным рассказом про ремонт шлагбаума.',
           minutes: 38, fx: { energy: -4, stress: 2 },
-          flags: ['rodeWithNeighbor', 'owesBakyt', 'stuckInTraffic'],
+          flags: ['rodeWithNeighbor', 'owesBakyt', 'stuckInTraffic'], bonds: { bakyt: 1 },
           vars: { transportType: 'neighbor', stuckInTraffic: true },
           result: 'Бакыт довёз вас по Чуй мимо «Мадины», показал, где «раньше была та самая шаурма», ' +
             'и высадил на Чуй. Бесплатно, но по дороге вы узнали о районе больше, чем за год.'
@@ -320,4 +319,10 @@ const leftLate = (s) => s.has('cookedBreakfast');
       ]
     }
   ];
+
+  BD.findPivot = function (kind, districtId) {
+    const key = districtId === 'vostok' ? 'vostok5' : districtId;
+    return BD.PIVOTS.find((p) => p.pivotFor === kind && (!p.districts || p.districts.indexOf(key) >= 0)) || null;
+  };
+
 })(typeof window !== 'undefined' ? window : globalThis);

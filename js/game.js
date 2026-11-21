@@ -15,12 +15,6 @@
     m = Math.round(m);
     return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
   }
-  /* Кикер хранит авторское время, но показывает реальное: часы в HUD и в карточке не расходятся. */
-  function kickerText(ev, s) {
-    const raw = typeof ev.kicker === 'function' ? (ev.kicker(s) || '') : (ev.kicker || '');
-    if (!/^\d{1,2}:\d{2}(\s|·)/.test(raw)) return raw;
-    return fmtTime(s.time) + raw.replace(/^\d{1,2}:\d{2}/, '');
-  }
   function fmtMoney(n) {
     const x = Math.round(Math.abs(n));
     return (n < 0 ? '−' : '') + x.toLocaleString('ru-RU').replace(/\u00A0/g, ' ');
@@ -65,10 +59,8 @@
       this.queue = [];            // очередь сюжетных разворотов (fail-forward)
       this.pivotsUsed = new Set();
       this.injected = null;       // событие-разворот, которое сейчас на экране
-      this.bonds = { parents: 0, bakyt: 0, apa: 0, dvor: 0, kid: 0 };
-      this.memory = [];           // собранные предметы памяти (id из BD.MEMORY)
-      this.vignettesShown = new Set();
-      this.postcard = null;       // открытка памяти, выбранная в финале
+      this.bonds = {};            // отношения с людьми маршрута: bakyt, apa, aksakal, parents…
+      this.memories = new Set();  // предметы памяти: note, kurut, photo, cassette…
     }
 
     clone() {
@@ -94,25 +86,18 @@
       c.pivotsUsed = new Set(this.pivotsUsed);
       c.injected = this.injected;
       c.bonds = Object.assign({}, this.bonds);
-      c.memory = this.memory.slice();
-      c.vignettesShown = new Set(this.vignettesShown);
-      c.postcard = this.postcard;
+      c.memories = new Set(this.memories);
       return c;
     }
+
+    bond(name) { return this.bonds[name] || 0; }
+    addBond(name, d) { this.bonds[name] = Math.max(0, Math.min(5, this.bond(name) + d)); }
+    hasItem(name) { return this.memories.has(name); }
+    giveItem(name) { this.memories.add(name); }
 
     has(f) { return this.flags.has(flagKey(f)); }
     set(f) { this.flags.set(flagKey(f), null); }
     clear(f) { this.flags.delete(flagKey(f)); }
-
-    addBond(name, amount) {
-      if (!name || !amount) return;
-      this.bonds[name] = clamp((this.bonds[name] || 0) + amount, 0, 12);
-    }
-
-    addMemory(id) {
-      if (!id) return;
-      if (this.memory.indexOf(id) < 0) this.memory.push(id);
-    }
 
     getVar(name, fallback) {
       return this.vars[name] === undefined ? fallback : this.vars[name];
@@ -168,6 +153,8 @@
         s.stressLog = [{ t: s.time, v: s.stress, label: 'Старт · ' + district.name }];
         s.energyLog = [{ t: s.time, v: s.energy }];
       }
+      // первое событие тоже должно подходить району (у районов свои стартовые сцены)
+      while (this.state.eventIndex < EVENTS.length - 1 && !this.isActive(this.eventAt(this.state.eventIndex))) this.state.eventIndex++;
       this.enterCurrent();
     }
 
@@ -185,6 +172,7 @@
       if (!ev) return false;
       const s = this.state;
       if (ev.districts && ev.districts.indexOf(s.district) < 0) return false;
+      if (ev.excludeDistricts && ev.excludeDistricts.indexOf(s.district) >= 0) return false;
       if (ev.requiredFlags && !ev.requiredFlags.every((f) => s.has(f))) return false;
       if (ev.forbiddenFlags && ev.forbiddenFlags.some((f) => s.has(f))) return false;
       return !ev.when || !!ev.when(s);
@@ -233,6 +221,8 @@
         (ch.requiredFlags ? !ch.requiredFlags.every((f) => s.has(f)) : false) ||
         (ch.forbiddenFlags ? ch.forbiddenFlags.some((f) => s.has(f)) : false);
       // Строгая проверка бюджета: платный выбор недоступен, если денег не хватает.
+      const bonds = typeof ch.bonds === 'function' ? (ch.bonds(s) || {}) : (ch.bonds || {});
+      const items = typeof ch.items === 'function' ? (ch.items(s) || []) : (ch.items || []);
       const cost = fx.money < 0 ? -fx.money : 0;
       const unaffordable = cost > Math.max(0, s.budget);
       const lockReason = unaffordable && !locked
@@ -247,6 +237,8 @@
         locked: locked || unaffordable,
         unaffordable,
         cost,
+        bonds,
+        items,
         lockReason
       };
     }
@@ -277,11 +269,8 @@
       const clear = typeof ch.clear === 'function' ? ch.clear(s) : (ch.clear || []);
       clear.filter(Boolean).forEach((f) => s.clear(f));
       s.applyVars(ch.vars);
-
-      const bonds = val(ch.bonds, s) || {};
-      Object.keys(bonds).forEach((name) => s.addBond(name, bonds[name]));
-      const memory = val(ch.memory, s);
-      (Array.isArray(memory) ? memory : [memory]).filter(Boolean).forEach((id) => s.addMemory(id));
+      Object.keys(resolved.bonds).forEach((k) => s.addBond(k, resolved.bonds[k]));
+      resolved.items.forEach((it) => s.giveItem(it));
 
       s.time = Math.min(CONFIG.dayEnd, s.time + resolved.minutes);
       s.history.push({
@@ -389,12 +378,9 @@
         eventsPlayed: s.history.length,
         district,
         route,
-        bonds: Object.assign({}, s.bonds),
-        memory: s.memory.slice(),
-        memoryItems: s.memory
-          .map((id) => (BD.MEMORY && BD.MEMORY[id] ? Object.assign({ id }, BD.MEMORY[id]) : null))
-          .filter(Boolean),
-        postcard: BD.pickPostcard ? BD.pickPostcard(s) : null
+        routeEnding: BD.pickRouteEnding ? BD.pickRouteEnding(s) : null,
+        memories: Array.from(s.memories),
+        bonds: Object.assign({}, s.bonds)
       };
       return this.summary;
     }
@@ -406,15 +392,13 @@
       const energy = clamp(s.energy / 100, 0, 1) * 15;
       const latePenalty = Math.max(0, s.endTime - (20 * 60 + 50)) / 6;
       const time = clamp(10 - latePenalty, 0, 10);
-      const bondTotal = Object.keys(s.bonds || {}).reduce((a, k) => a + (s.bonds[k] || 0), 0);
-      const bondBonus = clamp(bondTotal / 20, 0, 1) * 5;
       const life =
         (s.has('schoolPaid') ? 1 : 0) +
         (s.has('utilitiesPaid') ? 1 : 0) +
         (s.has('familyTime') ? 1 : 0) +
         ((s.has('visitedParents') || s.has('pickedUpKids') || s.has('calledParents') || s.has('helpedRelative')) ? 1 : 0) +
         (s.has('weatherReady') ? 1 : 0);
-      return Math.round(clamp(wealth + thrift + calm + energy + time + life + bondBonus, 0, 100));
+      return Math.round(clamp(wealth + thrift + calm + energy + time + life, 0, 100));
     }
   }
 
@@ -479,8 +463,8 @@
     [
       'intro', 'district', 'districtGrid', 'districtBackBtn', 'play', 'summary', 'gameover', 'hud',
       'sceneChip', 'chipIcon', 'chipPlace', 'chipTime',
-      'muteBtn', 'muteIcon', 'volRange', 'startBtn', 'introBest', 'eventCard', 'eventKicker', 'eventProgress',
-      'eventTitle', 'eventText', 'eventDialogue', 'statusRow', 'bondRow', 'choices', 'choiceHint', 'consequence',
+      'muteBtn', 'muteIcon', 'startBtn', 'introBest', 'eventCard', 'eventKicker', 'eventProgress',
+      'eventTitle', 'eventText', 'statusRow', 'choices', 'choiceHint', 'consequence',
       'consequenceText', 'applied', 'nextBtn', 'floatLayer',
       'moneyValue', 'moneyBar', 'energyValue', 'energyBar', 'stressValue', 'stressBar',
       'timeValue', 'timeBar', 'summaryScore', 'summaryScoreRing', 'summaryVerdictTitle',
@@ -488,10 +472,10 @@
       'sumEnergy', 'sumHome', 'sumRoute', 'sumEvents', 'summaryBadges', 'summaryBadgeCount', 'stressChart',
       'bestLabel', 'playAgainBtn', 'districtBtn', 'menuBtn', 'gameoverIcon', 'gameoverKicker',
       'gameoverTitle', 'gameoverText', 'gameoverTip', 'goBudget', 'goEnergy', 'goStress',
-      'goTime', 'restartBtn', 'goDistrictBtn', 'goMenuBtn', 'goLast', 'softPostcard',
-      'postcardPanel', 'postcardMount', 'summaryBonds', 'summaryMemory', 'summaryMemoryCount', 'bondsPanel',
-      'albumBtn', 'albumCount', 'album', 'albumGrid', 'albumMemory', 'albumCloseBtn', 'vignette',
-      'vignetteKicker', 'vignetteText', 'vignetteWho', 'vignetteBar', 'vignetteSkip'
+      'goTime', 'restartBtn', 'goDistrictBtn', 'goMenuBtn', 'goLast',
+      'audioBtn', 'audioPanel', 'volRange', 'ambCheck', 'musCheck', 'glossTip', 'vignetteBar',
+      'postcard', 'pcCard', 'pcKicker', 'pcTitle', 'pcText', 'pcItems', 'pcBata', 'pcTip', 'pcStamp',
+      'pcNextBtn', 'pcAgainBtn', 'pcDistrictBtn', 'pcMenuBtn'
     ].forEach((id) => { dom[id] = $(id); });
   }
 
@@ -502,15 +486,9 @@
     dom.play.hidden = name !== 'play';
     dom.summary.hidden = name !== 'summary';
     dom.gameover.hidden = name !== 'gameover';
+    dom.postcard.hidden = name !== 'postcard';
     dom.hud.hidden = name !== 'play';
     dom.sceneChip.hidden = name !== 'play';
-    if (dom.album) dom.album.hidden = true;
-    document.body.classList.remove('album-open');
-    if (dom.vignette) dom.vignette.hidden = true;
-    document.body.classList.remove('vignette-open');
-    clearTimeout(vignetteTimer);
-    vignetteTimer = 0;
-    vignetteDone = null;
     document.body.dataset.screen = name;
   }
 
@@ -519,7 +497,6 @@
     dom.muteBtn.setAttribute('aria-pressed', muted ? 'true' : 'false');
     dom.muteBtn.setAttribute('aria-label', muted ? 'Включить звук' : 'Выключить звук');
     dom.muteIcon.innerHTML = icon(muted ? 'mute' : 'sound');
-    if (dom.volRange) dom.volRange.classList.toggle('is-off', muted);
   }
 
   function toggleMute() {
@@ -533,11 +510,10 @@
     const ev = engine.event;
     dom.chipPlace.textContent = ev.place;
     dom.chipTime.textContent = fmtTime(engine.state.time);
-    const map = {
-      home: 'home', parents_home: 'home', courtyard: 'home', stairwell: 'home',
-      kitchen_night: 'coffee', traffic: 'road', office: 'office', bazaar: 'bazaar',
-      evening: 'night', school: 'school', park: 'mountain', mall: 'bag'
-    };
+    const map = { home: 'home', traffic: 'road', office: 'office', bazaar: 'bazaar', evening: 'night', school: 'school',
+      courtyard: 'home', stairwell: 'home', kitchen_night: 'coffee', apa_kitchen: 'coffee', parents_home: 'heart', mall: 'bag', park: 'sun',
+      school_evening: 'school', south_panorama: 'mountain',
+      old_center_courtyard: 'home', memory_corner: 'heart', alatoo_twilight: 'night' };
     dom.chipIcon.innerHTML = icon(map[ev.scene] || 'sun');
   }
 
@@ -700,122 +676,106 @@
 
   /* ------------------------ карточка события --------------------------- */
 
-  /* Слова из глоссария подчёркиваются пунктиром и объясняются при наведении
-     или фокусе. Разметка строится текстовыми узлами — никакого innerHTML с
-     пользовательским текстом. */
-  const WORD_RE = /[A-Za-zА-Яа-яЁёӨөҮүҢң]+/g;
-
-  function glossaryFragment(text) {
-    const frag = document.createDocumentFragment();
-    const str = String(text || '');
-    let last = 0;
-    let m;
-    WORD_RE.lastIndex = 0;
-    while ((m = WORD_RE.exec(str))) {
-      if (m.index > last) frag.appendChild(document.createTextNode(str.slice(last, m.index)));
-      const word = m[0];
-      const g = BD.findGlossary ? BD.findGlossary(word) : null;
-      if (g) {
-        const term = document.createElement('span');
-        term.className = 'glossary-term';
-        term.tabIndex = 0;
-        term.setAttribute('role', 'note');
-        term.setAttribute('aria-label', word + '. ' + g.hint);
-        term.dataset.hint = g.hint;
-        term.textContent = word;
-        const pop = document.createElement('span');
-        pop.className = 'glossary-pop';
-        pop.textContent = g.hint;
-        term.appendChild(pop);
-        frag.appendChild(term);
-      } else {
-        frag.appendChild(document.createTextNode(word));
-      }
-      last = m.index + word.length;
-    }
-    if (last < str.length) frag.appendChild(document.createTextNode(str.slice(last)));
-    return frag;
+  /* Текст с диалогами («@Имя: реплика») и подчёркнутыми словами глоссария. */
+  function appendRich(el, text) {
+    const src = String(text || '');
+    const hits = [];
+    (BD.GLOSSARY || []).forEach((g) => {
+      for (const m of src.matchAll(g.re)) hits.push({ a: m.index, b: m.index + m[0].length, g });
+    });
+    hits.sort((x, y) => x.a - y.a || y.b - x.b);
+    let pos = 0;
+    hits.forEach((h) => {
+      if (h.a < pos) return;
+      if (h.a > pos) el.appendChild(document.createTextNode(src.slice(pos, h.a)));
+      const w = document.createElement('span');
+      w.className = 'gloss';
+      w.tabIndex = 0;
+      w.dataset.term = h.g.term;
+      w.dataset.def = h.g.def;
+      w.textContent = src.slice(h.a, h.b);
+      el.appendChild(w);
+      pos = h.b;
+    });
+    if (pos < src.length) el.appendChild(document.createTextNode(src.slice(pos)));
   }
 
   function renderParagraphs(container, text) {
     container.innerHTML = '';
-    String(text || '').split(/\n\n+/).forEach((p) => {
-      const el = document.createElement('p');
-      el.appendChild(glossaryFragment(p.trim()));
-      container.appendChild(el);
+    String(text || '').split(/\n\n+/).forEach((raw) => {
+      const p = raw.trim();
+      if (!p) return;
+      const m = /^@([^:\n]{1,32}):\s*([\s\S]*)$/.exec(p);
+      if (m) {
+        const box = document.createElement('div');
+        box.className = 'dialogue';
+        const who = document.createElement('span');
+        who.className = 'speaker';
+        who.textContent = m[1];
+        const say = document.createElement('span');
+        say.className = 'say';
+        say.appendChild(document.createTextNode('\u00ab'));
+        appendRich(say, m[2]);
+        say.appendChild(document.createTextNode('\u00bb'));
+        box.append(who, say);
+        container.appendChild(box);
+      } else {
+        const el = document.createElement('p');
+        appendRich(el, p);
+        container.appendChild(el);
+      }
     });
   }
 
-  function renderDialogue() {
-    if (!dom.eventDialogue || !engine.event) return;
-    const lines = val(engine.event.dialogue, engine.state) || [];
-    dom.eventDialogue.innerHTML = '';
-    if (!Array.isArray(lines) || !lines.length) {
-      dom.eventDialogue.hidden = true;
-      return;
-    }
-    dom.eventDialogue.hidden = false;
-    lines.slice(0, 3).forEach((line, i) => {
-      const row = document.createElement('div');
-      row.className = 'dialogue-line';
-      row.style.animationDelay = (i * 90) + 'ms';
-      const who = document.createElement('span');
-      who.className = 'dialogue-who';
-      who.textContent = line.who;
-      const txt = document.createElement('span');
-      txt.className = 'dialogue-text';
-      txt.appendChild(glossaryFragment(line.text));
-      row.append(who, txt);
-      dom.eventDialogue.appendChild(row);
-    });
+  function showGloss(target) {
+    const tip = dom.glossTip;
+    tip.innerHTML = '';
+    const b = document.createElement('b');
+    b.textContent = target.dataset.term;
+    tip.append(b, document.createTextNode(target.dataset.def));
+    tip.hidden = false;
+    const r = target.getBoundingClientRect();
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    let x = Math.min(window.innerWidth - tw - 10, Math.max(10, r.left + r.width / 2 - tw / 2));
+    let y = r.top - th - 8;
+    if (y < 8) y = r.bottom + 8;
+    tip.style.left = x + 'px';
+    tip.style.top = y + 'px';
   }
 
-  /* Отношения показываются тихими чипами: без цифр успеха, только тепло. */
-  function renderBonds() {
-    if (!dom.bondRow || !engine) return;
-    const b = engine.state.bonds || {};
-    const keys = (BD.BOND_ORDER || Object.keys(b)).filter((k) => (b[k] || 0) > 0);
-    const memory = engine.state.memory || [];
-    dom.bondRow.innerHTML = '';
-    if (!keys.length && !memory.length) {
-      dom.bondRow.hidden = true;
-      return;
-    }
-    dom.bondRow.hidden = false;
-    keys.slice(0, 5).forEach((name) => {
-      const def = (BD.BONDS && BD.BONDS[name]) || { label: name, icon: 'heart' };
-      const chip = document.createElement('span');
-      chip.className = 'bond-chip';
-      chip.title = (def.hint ? def.hint + ' ' : '') + 'Сейчас: ' + b[name];
-      const ico = document.createElement('span');
-      ico.className = 'bond-ico';
-      ico.innerHTML = icon(def.icon);
-      const label = document.createElement('span');
-      label.className = 'bond-name';
-      label.textContent = BD.bondLabel ? BD.bondLabel(name, engine.state.district) : def.label;
-      const count = document.createElement('b');
-      count.className = 'bond-count';
-      count.textContent = '· ' + b[name];
-      chip.append(ico, label, count);
-      dom.bondRow.appendChild(chip);
-    });
-    if (memory.length) {
-      const chip = document.createElement('span');
-      chip.className = 'bond-chip is-memory';
-      chip.title = memory.map((id) => (BD.MEMORY[id] ? BD.MEMORY[id].label : id)).join(', ');
-      const ico = document.createElement('span');
-      ico.className = 'bond-ico';
-      ico.innerHTML = icon('star');
-      const label = document.createElement('span');
-      label.className = 'bond-name';
-      label.textContent = 'память';
-      const count = document.createElement('b');
-      count.className = 'bond-count';
-      count.textContent = '· ' + memory.length;
-      chip.append(ico, label, count);
-      dom.bondRow.appendChild(chip);
-    }
+  function hideGloss() { if (dom.glossTip) dom.glossTip.hidden = true; }
+
+  /* Живые предметы в сцене: подсказка при наведении/тапе на комуз, фото, курут и т. п. */
+  function sceneHotspotAt(ev) {
+    const rd = BD.debug && BD.debug.renderer;
+    if (!rd || !ev.target || ev.target.id !== 'scene' || !BD.hotspotAt) return null;
+    const r = ev.target.getBoundingClientRect();
+    const vx = (ev.clientX - r.left - rd.offX) / rd.scale, vy = (ev.clientY - r.top - rd.offY) / rd.scale;
+    return BD.hotspotAt(rd.scene, rd.sceneLabel, vx, vy);
   }
+  function showSceneTip(h, ev) {
+    const tip = dom.glossTip;
+    tip.innerHTML = '';
+    const b = document.createElement('b'); b.textContent = h.term;
+    tip.append(b, document.createTextNode(h.def));
+    tip.hidden = false;
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    tip.style.left = Math.min(window.innerWidth - tw - 10, Math.max(10, ev.clientX - tw / 2)) + 'px';
+    tip.style.top = Math.max(8, ev.clientY - th - 18) + 'px';
+  }
+  let sceneTipOn = false, sceneTipTimer = 0;
+  document.addEventListener('pointermove', (ev) => {
+    if (ev.pointerType === 'touch') return;
+    const h = sceneHotspotAt(ev);
+    document.body.classList.toggle('on-hotspot', !!h);
+    if (h) { showSceneTip(h, ev); sceneTipOn = true; } else if (sceneTipOn) { hideGloss(); sceneTipOn = false; }
+  });
+  document.addEventListener('pointerdown', (ev) => {
+    if (ev.pointerType !== 'touch') return;
+    const h = sceneHotspotAt(ev);
+    if (!h) return;
+    showSceneTip(h, ev); clearTimeout(sceneTipTimer); sceneTipTimer = setTimeout(hideGloss, 3500);
+  });
 
   function renderStatuses() {
     const s = engine.state;
@@ -827,18 +787,31 @@
       list.push({ key: 'caffeinated', ...STATUS.caffeinated });
     }
     list.sort((a, b) => (a.priority || 9) - (b.priority || 9));
+    const chips = list.slice(0, 4).map((st) => ({
+      cls: st.tone || 'info', label: st.label, hint: st.hint,
+      dot: st.tone === 'good' ? '\u2713' : st.tone === 'bad' ? '!' : '\u00b7'
+    }));
+    // Связи с людьми двора и предметы памяти: тихие чипы после обычных статусов.
+    Object.keys(BD.BONDS || {}).forEach((k) => {
+      const v = s.bond(k);
+      if (v > 0) { const bi = BD.bondInfo(k, s.district); chips.push({ cls: 'bond', dot: '\u2665', label: bi.label + ' \u00b7 ' + v, hint: bi.hint + ' Связь: ' + v + ' из 5.' }); }
+    });
+    s.memories.forEach((k) => {
+      const it = BD.ITEMS && BD.ITEMS[k];
+      if (it) chips.push({ cls: 'item', dot: '\u25c6', label: it.label, hint: 'Предмет памяти: ' + it.line + '.' });
+    });
     dom.statusRow.innerHTML = '';
-    if (!list.length) {
+    if (!chips.length) {
       dom.statusRow.hidden = true;
       return;
     }
     dom.statusRow.hidden = false;
-    list.slice(0, 5).forEach((st) => {
+    chips.forEach((st) => {
       const chip = document.createElement('span');
-      chip.className = 'status-chip ' + (st.tone || 'info');
+      chip.className = 'status-chip ' + st.cls;
       chip.title = st.hint || '';
       const dot = document.createElement('i');
-      dot.textContent = st.tone === 'good' ? '✓' : st.tone === 'bad' ? '!' : '·';
+      dot.textContent = st.dot;
       chip.appendChild(dot);
       const label = document.createElement('span');
       label.textContent = st.label;
@@ -855,16 +828,12 @@
     if (fx.stress) badges.push({ icon: 'pulse', text: fmtSigned(fx.stress) + '% стресс', tone: fx.stress > 0 ? 'bad' : 'good' });
     if (fx.saved) badges.push({ icon: 'tag', text: 'экономия ' + Math.round(fx.saved), tone: 'good' });
     if (resolved.minutes) badges.push({ icon: 'clock', text: '−' + resolved.minutes + ' мин', tone: 'neutral' });
-    const choice = resolved.choice || {};
-    const bonds = val(choice.bonds, engine.state) || {};
-    Object.keys(bonds).forEach((name) => {
-      const def = BD.BONDS && BD.BONDS[name];
-      if (def && bonds[name]) badges.push({ icon: def.icon, text: '+' + (BD.bondLabel ? BD.bondLabel(name, engine.state.district) : def.label), tone: 'bond' });
+    Object.keys(resolved.bonds || {}).forEach((k) => {
+      const v = resolved.bonds[k];
+      if (v && BD.BONDS && BD.BONDS[k]) badges.push({ icon: 'heart', text: BD.bondInfo(k, engine ? engine.state.district : null).label + ' ' + (v > 0 ? '+' : '') + v, tone: 'bond' });
     });
-    const memory = val(choice.memory, engine.state);
-    (Array.isArray(memory) ? memory : [memory]).filter(Boolean).forEach((id) => {
-      const def = BD.MEMORY && BD.MEMORY[id];
-      if (def) badges.push({ icon: def.icon, text: def.label, tone: 'memory' });
+    (resolved.items || []).forEach((k) => {
+      if (BD.ITEMS && BD.ITEMS[k]) badges.push({ icon: 'star', text: 'Память: ' + BD.ITEMS[k].label, tone: 'item' });
     });
     return badges;
   }
@@ -945,21 +914,17 @@
     if (s.time < ev.time) s.time = ev.time;
 
     dom.play.dataset.eventId = ev.id;
-    dom.eventKicker.textContent = kickerText(ev, engine.state);
+    dom.eventKicker.textContent = ev.kicker;
     const progress = engine.progress();
     dom.eventProgress.textContent = String(progress.index + 1).padStart(2, '0') + ' / ' + String(progress.total).padStart(2, '0');
     dom.eventTitle.textContent = ev.title;
     renderParagraphs(dom.eventText, val(ev.text, s));
-    renderDialogue();
     renderStatuses();
-    renderBonds();
     renderChoices();
 
-    renderer.setScene(val(ev.scene, s), s.district, val(ev.sceneLabel, s));
-    renderer.setFestive(s.time >= 19 * 60);
+    renderer.setScene(val(ev.scene, s), s.district, val(ev.sceneLabel, s) || val(ev.variant, s));
     renderer.setTime(s.time);
     renderer.setWeather(s.vars.weather || 'clear');
-    ambienceFor(val(ev.scene, s), s);
     updateHUD(true);
 
     dom.eventCard.classList.remove('card-in');
@@ -967,6 +932,51 @@
     dom.eventCard.classList.add('card-in');
     dom.eventCard.scrollTop = 0;
     dom.eventCard.setAttribute('aria-live', 'polite');
+    setupVignette(ev);
+    syncAmbient(ev);
+    if (ev.motif && audio) setTimeout(() => { if (engine && engine.event === ev) audio.playMotif(ev.motif); }, 700);
+  }
+
+  /* ---------------- виньетки: 15 секунд тишины ---------------- */
+  let vigTimer = null;
+  function clearVignette() {
+    if (vigTimer) { clearTimeout(vigTimer); vigTimer = null; }
+    if (dom.vignetteBar) { dom.vignetteBar.hidden = true; dom.vignetteBar.classList.remove('run'); }
+  }
+
+  function setupVignette(ev) {
+    clearVignette();
+    dom.eventCard.classList.toggle('is-vignette', !!ev.vignette);
+    if (!ev.vignette) return;
+    const ms = typeof BD.VIGNETTE_MS === 'number' ? BD.VIGNETTE_MS : ev.vignette * 1000;
+    dom.vignetteBar.hidden = false;
+    dom.vignetteBar.style.setProperty('--vig', ms + 'ms');
+    void dom.vignetteBar.offsetWidth;
+    dom.vignetteBar.classList.add('run');
+    const id = ev.id;
+    vigTimer = setTimeout(() => {
+      vigTimer = null;
+      if (!engine || !engine.event || engine.event.id !== id || pending || locked) return;
+      const first = engine.event.choices.find((c) => !engine.resolveChoice(c).locked);
+      if (!first) return;
+      choose(first.id);
+      setTimeout(() => { if (pending && engine.event && engine.event.id === id) nextEvent(); }, 1500);
+    }, ms);
+  }
+
+  /* ---------------- звуковая атмосфера по сцене ---------------- */
+  const SCENE_AMBIENT = { home: 'room', traffic: 'city', school: 'city', office: 'room', bazaar: 'market', evening: 'city',
+    park: 'park', courtyard: 'courtyard', mall: 'market', parents_home: 'room', stairwell: 'stairwell', kitchen_night: 'kitchen',
+    apa_kitchen: 'kitchen', south_panorama: 'hill', school_evening: 'courtyard',
+    old_center_courtyard: 'aryk', memory_corner: 'room', alatoo_twilight: 'city' };
+  const INDOOR = { home: 1, office: 1, mall: 1, parents_home: 1, stairwell: 1, kitchen_night: 1, apa_kitchen: 1, south_panorama: 1, memory_corner: 1 };
+
+  function syncAmbient(ev, sceneName) {
+    if (!audio || !engine) return;
+    const s = engine.state;
+    const scene = sceneName || val(ev.scene, s) || 'home';
+    const profile = ev.ambient || SCENE_AMBIENT[scene] || 'room';
+    audio.setAmbient(profile, s.vars.weather === 'rain' && !INDOOR[scene]);
   }
 
   function choose(choiceId) {
@@ -975,6 +985,8 @@
     if (!outcome) return;
     locked = true;
     pending = outcome;
+    clearVignette();
+    hideGloss();
 
     audio && audio.play('click');
     if (outcome.resolved.fx.money > 0) setTimeout(() => audio && audio.play('coin'), 180);
@@ -986,16 +998,15 @@
     const chosen = outcome.resolved.choice;
     if (chosen && chosen.scene) {
       renderer.setScene(chosen.scene, engine.state.district, chosen.sceneLabel || '');
+      syncAmbient(engine.event || {}, chosen.scene);
     }
+    if (chosen && chosen.motif && audio) setTimeout(() => audio.playMotif(chosen.motif), 350);
 
     updateHUD(false);
     showDeltas(outcome.resolved.fx, outcome.resolved.minutes);
     renderer.setTime(engine.state.time);
     renderer.setWeather(engine.state.vars.weather || 'clear');
-    renderer.setFestive(engine.state.time >= 19 * 60);
-    renderBonds();
     updateSceneChip();
-    ambienceFor(chosen && chosen.scene ? chosen.scene : val(engine.event.scene, engine.state), engine.state);
 
     const picked = dom.choices.querySelector('[data-choice-id="' + choiceId + '"]');
     if (picked) picked.classList.add('is-picked');
@@ -1008,7 +1019,7 @@
 
     dom.eventCard.classList.add('is-outcome');
     dom.consequence.hidden = false;
-    dom.consequenceText.textContent = outcome.result;
+    renderParagraphs(dom.consequenceText, outcome.result);
     dom.applied.innerHTML = '';
     previewBadges(outcome.resolved).forEach((b) => {
       const badge = document.createElement('span');
@@ -1027,436 +1038,128 @@
     dom.eventCard.scrollTop = 0;
   }
 
-  /* ------------------------- открытки и память ------------------------- */
-
-  const ALBUM_KEY = 'bd_postcards_v1';
-  let album = [];
-  try {
-    const raw = localStorage.getItem(ALBUM_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    album = Array.isArray(parsed) ? parsed : [];
-  } catch (e) { album = []; }
-
-  function updateAlbumCount() {
-    const n = String(album.length);
-    if (dom.albumCount) dom.albumCount.textContent = n;
-    document.querySelectorAll('[data-album-count]').forEach((el) => { el.textContent = n; });
-  }
-
-  function savePostcard(pc) {
-    if (!pc || !pc.id) return;
-    album = [pc].concat(album.filter((p) => p.id !== pc.id)).slice(0, 12);
-    try { localStorage.setItem(ALBUM_KEY, JSON.stringify(album)); } catch (e) { /* ignore */ }
-    updateAlbumCount();
-  }
-
-  /* Мини-иллюстрация открытки: несколько плоских фигур, без внешних файлов. */
-  function postcardArt(scene) {
-    if (scene === 'kitchen_night') {
-      return '<svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">' +
-        '<rect width="320" height="180" fill="#241b15"/>' +
-        '<rect x="42" y="16" width="236" height="104" rx="6" fill="#1a1410"/>' +
-        '<rect x="196" y="28" width="78" height="66" rx="3" fill="#0f1a2b"/>' +
-        '<rect x="200" y="32" width="34" height="28" fill="#243449"/><rect x="236" y="32" width="34" height="28" fill="#1b2a3d"/>' +
-        '<rect x="200" y="62" width="34" height="28" fill="#1b2a3d"/><rect x="236" y="62" width="30" height="28" fill="#243449"/>' +
-        '<g fill="#f6c96e" opacity=".8"><rect x="204" y="38" width="6" height="7"/><rect x="244" y="68" width="6" height="7"/><rect x="208" y="70" width="6" height="7"/></g>' +
-        '<path d="M148 16v30" stroke="#5c4630" stroke-width="3"/>' +
-        '<path d="M130 46h36l-8 20h-20z" fill="#e2aa55"/>' +
-        '<circle cx="148" cy="72" r="34" fill="#f2b64b" opacity=".16"/>' +
-        '<circle cx="148" cy="72" r="16" fill="#ffe0a0" opacity=".55"/>' +
-        '<rect x="34" y="116" width="252" height="10" rx="5" fill="#8a5a30"/>' +
-        '<rect x="52" y="126" width="9" height="42" fill="#6d4526"/><rect x="260" y="126" width="9" height="42" fill="#6d4526"/>' +
-        '<ellipse cx="126" cy="112" rx="18" ry="7" fill="#d9c7a4"/><path d="M116 100h20l-3 12h-14z" fill="#efe2c8"/>' +
-        '<path d="M138 102q12 4 0 10" stroke="#efe2c8" stroke-width="3" fill="none"/>' +
-        '<ellipse cx="186" cy="114" rx="12" ry="5" fill="#e8dcc0"/><ellipse cx="216" cy="114" rx="12" ry="5" fill="#e8dcc0"/>' +
-        '<ellipse cx="246" cy="114" rx="12" ry="5" fill="#e8dcc0"/>' +
-        '<path d="M184 96q6-10 0-18M216 98q6-10 0-18" stroke="#f6e8cc" stroke-width="2" opacity=".35" fill="none"/>' +
-        '</svg>';
-    }
-    if (scene === 'stairwell') {
-      return '<svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">' +
-        '<rect width="320" height="180" fill="#3b3731"/>' +
-        '<rect x="0" y="120" width="320" height="60" fill="#2a2722"/>' +
-        '<rect x="26" y="24" width="84" height="92" rx="3" fill="#1b2638"/>' +
-        '<path d="M26 92 110 44v72H26Z" fill="#e7a86a" opacity=".22"/>' +
-        '<rect x="64" y="24" width="6" height="92" fill="#6b6257"/><rect x="26" y="66" width="84" height="6" fill="#6b6257"/>' +
-        '<path d="M152 180V126h34v-26h34v-26h34v-24h34v-14" stroke="#5d574d" stroke-width="10" fill="none"/>' +
-        '<path d="M146 150h36M182 124h36M218 98h36M254 72h36" stroke="#7a7265" stroke-width="4"/>' +
-        '<path d="M150 42v96M254 22v96" stroke="#8b8274" stroke-width="3"/>' +
-        '<text x="188" y="52" font-family="Inter, sans-serif" font-size="30" fill="#d8c8a4" opacity=".85">5</text>' +
-        '<rect x="30" y="96" width="10" height="20" rx="3" fill="#d9c7a4"/>' +
-        '<path d="M50 116q26-14 52 0" stroke="#8a3f3f" stroke-width="4" fill="none" opacity=".8"/>' +
-        '</svg>';
-    }
-    if (scene === 'evening') {
-      return '<svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">' +
-        '<rect width="320" height="180" fill="#2a2438"/>' +
-        '<circle cx="244" cy="58" r="30" fill="#f2a45b" opacity=".3"/>' +
-        '<circle cx="244" cy="58" r="15" fill="#f8ce92" opacity=".8"/>' +
-        '<path d="M0 120 30 96 54 110 84 84 118 112 150 92 182 114 214 88 248 112 280 96 320 118V180H0Z" fill="#171a2b"/>' +
-        '<g fill="#101322"><rect x="18" y="108" width="40" height="72"/><rect x="76" y="96" width="34" height="84"/><rect x="130" y="112" width="46" height="68"/><rect x="198" y="100" width="38" height="80"/><rect x="254" y="110" width="52" height="70"/></g>' +
-        '<g fill="#f6c96e" opacity=".8"><rect x="28" y="120" width="5" height="7"/><rect x="44" y="140" width="5" height="7"/><rect x="84" y="110" width="5" height="7"/><rect x="142" y="128" width="5" height="7"/><rect x="208" y="116" width="5" height="7"/><rect x="268" y="128" width="5" height="7"/></g>' +
-        '<path d="M0 168h320" stroke="#3c3550" stroke-width="14"/>' +
-        '<path d="M22 168h48M108 168h48M194 168h48M272 168h30" stroke="#ffd782" stroke-width="2.5" opacity=".7"/>' +
-        '</svg>';
-    }
-    if (scene === 'apa_kitchen') {
-      return '<svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">' +
-        '<rect width="320" height="180" fill="#3b2a1d"/>' +
-        '<rect width="320" height="116" fill="#8a6438"/>' +
-        '<rect y="116" width="320" height="64" fill="#553a24"/>' +
-        '<rect x="18" y="20" width="86" height="66" rx="3" fill="#1d2338"/>' +
-        '<rect x="22" y="24" width="78" height="58" fill="#5c4058"/>' +
-        '<circle cx="80" cy="58" r="13" fill="#f2b57c" opacity=".85"/>' +
-        '<path d="M22 82 40 60 54 72 70 54 86 74 100 62v20H22Z" fill="#2a2438"/>' +
-        '<g fill="#ffd282" opacity=".85"><rect x="30" y="74" width="4" height="5"/><rect x="48" y="78" width="4" height="5"/><rect x="66" y="76" width="4" height="5"/><rect x="86" y="72" width="4" height="5"/></g>' +
-        '<rect x="59" y="24" width="2" height="58" fill="#6b5137"/><rect x="22" y="52" width="78" height="2" fill="#6b5137"/>' +
-        '<path d="M12 16h16v74H12z" fill="#b7834f"/><path d="M94 16h14v74H94z" fill="#c08f5e"/>' +
-        '<rect x="198" y="44" width="108" height="4" rx="1" fill="#8a5a30"/>' +
-        '<g><rect x="206" y="26" width="14" height="18" rx="2" fill="#c0503f"/><rect x="228" y="30" width="14" height="14" rx="2" fill="#d9a43c"/><rect x="250" y="24" width="14" height="20" rx="2" fill="#7fa04a"/><rect x="272" y="32" width="14" height="12" rx="2" fill="#b06a8a"/></g>' +
-        '<path d="M150 0v22" stroke="#3a2f22" stroke-width="2"/>' +
-        '<path d="M130 22h40l-7 13h-26z" fill="#2f6a4d"/>' +
-        '<circle cx="150" cy="40" r="24" fill="#ffce84" opacity=".14"/>' +
-        '<ellipse cx="150" cy="35" rx="20" ry="3" fill="#ffe4a8"/>' +
-        '<rect x="226" y="12" width="62" height="30" rx="3" fill="#8a5a30"/>' +
-        '<rect x="230" y="16" width="30" height="22" rx="2" fill="#c9a86e"/>' +
-        '<path d="M232 22h26M232 27h26M232 32h26" stroke="#8a5a30" stroke-width="1.4" opacity=".6"/>' +
-        '<circle cx="274" cy="25" r="7" fill="#2f2a24" stroke="#e8d8b8" stroke-width="1.2"/>' +
-        '<circle cx="271" cy="34" r="2" fill="#e2574c"/>' +
-        '<rect x="228" y="104" width="92" height="48" rx="3" fill="#d6cdb9"/>' +
-        '<rect x="228" y="100" width="92" height="6" fill="#3a3a37"/>' +
-        '<ellipse cx="274" cy="100" rx="38" ry="12" fill="#3a3632"/>' +
-        '<ellipse cx="274" cy="97" rx="33" ry="9" fill="#e0a03c"/>' +
-        '<g fill="#efc478"><rect x="252" y="92" width="9" height="6" rx="1" transform="rotate(20 256 95)"/><rect x="266" y="90" width="9" height="6" rx="1" transform="rotate(-15 270 93)"/><rect x="280" y="93" width="9" height="6" rx="1" transform="rotate(30 284 96)"/><rect x="292" y="90" width="8" height="5" rx="1" transform="rotate(-24 296 92)"/></g>' +
-        '<path d="M260 86q4-9 0-17M288 88q4-9 0-17" stroke="#fffaf0" stroke-width="2" opacity=".32" fill="none"/>' +
-        '<rect x="38" y="124" width="232" height="8" rx="2" fill="#c9a36a"/>' +
-        '<rect x="46" y="132" width="8" height="40" fill="#6b4a2c"/><rect x="254" y="132" width="8" height="40" fill="#6b4a2c"/>' +
-        '<rect x="54" y="118" width="96" height="6" rx="2" fill="#b98a55"/>' +
-        '<g fill="#f7ead0"><ellipse cx="70" cy="114" rx="10" ry="4.5"/><ellipse cx="92" cy="113" rx="10" ry="4.5"/><ellipse cx="114" cy="115" rx="10" ry="4.5"/></g>' +
-        '<g transform="rotate(-6 120 111)"><rect x="74" y="107" width="84" height="7" rx="3" fill="#8a5a30"/><rect x="68" y="109" width="8" height="4" rx="2" fill="#6d4526"/><rect x="156" y="109" width="8" height="4" rx="2" fill="#6d4526"/></g>' +
-        '<ellipse cx="196" cy="119" rx="24" ry="6" fill="#efe4cc"/>' +
-        '<g fill="#e8b45c"><rect x="184" y="111" width="8" height="5" rx="1" transform="rotate(18 188 113)"/><rect x="195" y="110" width="8" height="5" rx="1" transform="rotate(-22 199 112)"/><rect x="206" y="112" width="8" height="5" rx="1" transform="rotate(12 210 114)"/></g>' +
-        '<path d="M224 116h16q5 0 4 5h-24q-1-5 4-5Z" fill="#efe4cc"/><path d="M238 118q7 2 0 5" stroke="#efe4cc" stroke-width="2.5" fill="none"/>' +
-        '<path d="M232 108q3-6 0-12M240 110q3-6 0-12" stroke="#fffaf0" stroke-width="2" opacity=".3" fill="none"/>' +
-        '</svg>';
-    }
-    if (scene === 'school_evening') {
-      return '<svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">' +
-        '<rect width="320" height="180" fill="#241f36"/>' +
-        '<rect width="320" height="108" fill="#4a3554"/>' +
-        '<rect y="72" width="320" height="36" fill="#a75f60" opacity=".7"/>' +
-        '<rect y="96" width="320" height="24" fill="#e99a6c" opacity=".8"/>' +
-        '<circle cx="246" cy="96" r="34" fill="#f2a45b" opacity=".28"/>' +
-        '<circle cx="246" cy="96" r="14" fill="#f8ce92" opacity=".9"/>' +
-        '<path d="M0 112 38 76 70 96 104 64 140 100 176 74 212 102 250 78 288 100 320 84V132H0Z" fill="#3d2f4a"/>' +
-        '<path d="M0 116 44 92 84 108 126 86 168 110 214 92 260 112 320 96V132H0Z" fill="#2c2438"/>' +
-        '<g fill="#ff9a8a" opacity=".35"><path d="M38 76 26 92h24zM104 64 88 86h32zM176 74 162 92h28zM250 78 238 94h24z"/></g>' +
-        '<rect x="22" y="48" width="186" height="76" fill="#b8a48b"/>' +
-        '<rect x="22" y="44" width="186" height="6" fill="#8f7a63"/>' +
-        '<g fill="#ffd282"><rect x="34" y="56" width="14" height="16" rx="1"/><rect x="58" y="56" width="14" height="16" rx="1"/><rect x="106" y="56" width="14" height="16" rx="1"/><rect x="130" y="56" width="14" height="16" rx="1"/><rect x="178" y="56" width="14" height="16" rx="1"/></g>' +
-        '<g fill="#2a2438"><rect x="82" y="56" width="14" height="16" rx="1"/><rect x="154" y="56" width="14" height="16" rx="1"/></g>' +
-        '<g fill="#ffd282"><rect x="34" y="82" width="14" height="16" rx="1"/><rect x="82" y="82" width="14" height="16" rx="1"/><rect x="130" y="82" width="14" height="16" rx="1"/><rect x="178" y="82" width="14" height="16" rx="1"/></g>' +
-        '<g fill="#2a2438"><rect x="58" y="82" width="14" height="16" rx="1"/><rect x="106" y="82" width="14" height="16" rx="1"/><rect x="154" y="82" width="14" height="16" rx="1"/></g>' +
-        '<rect x="104" y="100" width="24" height="24" fill="#3b3028"/>' +
-        '<rect x="104" y="108" width="24" height="16" fill="#ffce84" opacity=".7"/>' +
-        '<rect x="112" y="34" width="52" height="16" rx="2" fill="#1f4f93"/>' +
-        '<text x="138" y="45" font-family="Inter, sans-serif" font-size="9" font-weight="700" fill="#f2f4f6" text-anchor="middle">ШКОЛА № 61</text>' +
-        '<rect x="22" y="124" width="296" height="56" fill="#2c2733"/>' +
-        '<path d="M236 124v-34M268 124v-34M232 94h40M232 106h40" stroke="#5d5763" stroke-width="3"/>' +
-        '<circle cx="270" cy="100" r="7" fill="none" stroke="#d9483f" stroke-width="2"/>' +
-        '<path d="M208 124v-40" stroke="#4a4148" stroke-width="3"/>' +
-        '<circle cx="208" cy="82" r="4" fill="#ffe0a8"/><circle cx="208" cy="82" r="12" fill="#ffce84" opacity=".16"/>' +
-        '<g fill="#f0d9a8" opacity=".55"><rect x="40" y="140" width="26" height="6"/><rect x="90" y="140" width="26" height="6"/><rect x="140" y="140" width="26" height="6"/></g>' +
-        '<g fill="#ffd282" opacity=".75"><rect x="30" y="152" width="4" height="4"/><rect x="82" y="154" width="4" height="4"/><rect x="132" y="152" width="4" height="4"/><rect x="182" y="154" width="4" height="4"/></g>' +
-        '</svg>';
-    }
-    if (scene === 'south_panorama') {
-      return '<svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">' +
-        '<rect width="320" height="180" fill="#151a32"/>' +
-        '<rect y="52" width="320" height="40" fill="#3a2b4c"/>' +
-        '<rect y="92" width="320" height="34" fill="#8a4e5e"/>' +
-        '<rect y="126" width="320" height="22" fill="#d97b62"/>' +
-        '<rect y="148" width="320" height="18" fill="#f2b47c"/>' +
-        '<g fill="#fff"><rect x="26" y="18" width="2" height="2"/><rect x="74" y="30" width="2" height="2"/><rect x="128" y="14" width="2" height="2"/><rect x="188" y="26" width="2" height="2"/><rect x="242" y="12" width="2" height="2"/><rect x="292" y="32" width="2" height="2"/></g>' +
-        '<circle cx="238" cy="142" r="34" fill="#f6b77c" opacity=".3"/>' +
-        '<circle cx="238" cy="142" r="15" fill="#ffe0ae" opacity=".9"/>' +
-        '<path d="M0 132 38 92 72 112 108 78 146 114 184 84 220 112 258 88 292 110 320 96V160H0Z" fill="#3b2e46"/>' +
-        '<path d="M0 138 44 116 86 130 128 108 170 132 214 112 258 132 320 116V160H0Z" fill="#2a2438"/>' +
-        '<g fill="#ff9a8a" opacity=".3"><path d="M38 92 24 110h28zM108 78 92 102h32zM184 84 170 104h28zM258 88 246 106h24z"/></g>' +
-        '<g fill="#241f30"><rect x="10" y="140" width="30" height="30"/><rect x="46" y="132" width="24" height="38"/><rect x="76" y="144" width="34" height="26"/><rect x="116" y="136" width="26" height="34"/><rect x="148" y="146" width="38" height="24"/><rect x="192" y="138" width="28" height="32"/><rect x="226" y="146" width="36" height="24"/><rect x="268" y="136" width="30" height="34"/></g>' +
-        '<g fill="#ffd282" opacity=".9"><rect x="18" y="146" width="4" height="5"/><rect x="32" y="154" width="4" height="5"/><rect x="52" y="140" width="4" height="5"/><rect x="84" y="150" width="4" height="5"/><rect x="124" y="144" width="4" height="5"/><rect x="156" y="152" width="4" height="5"/><rect x="200" y="144" width="4" height="5"/><rect x="234" y="152" width="4" height="5"/><rect x="276" y="142" width="4" height="5"/></g>' +
-        '<path d="M0 170q90-24 180-6t140 4v14H0Z" fill="#1d1926"/>' +
-        '<g stroke="#5a4640" stroke-width="3"><path d="M176 156v-22M232 154v-22M288 152v-22"/></g>' +
-        '<path d="M170 136h126" stroke="#6b534a" stroke-width="4"/>' +
-        '<g fill="#8a5a34"><rect x="196" y="150" width="96" height="5" rx="1"/><rect x="196" y="158" width="96" height="5" rx="1"/><rect x="196" y="166" width="96" height="5" rx="1"/></g>' +
-        '<g fill="#7d4f2d"><rect x="202" y="132" width="84" height="4" rx="1"/><rect x="202" y="140" width="84" height="4" rx="1"/></g>' +
-        '<path d="M202 132v34M286 132v34" stroke="#5f3f26" stroke-width="4"/>' +
-        '<rect x="270" y="142" width="9" height="16" rx="2" fill="#b04a3e"/><rect x="272" y="138" width="5" height="5" rx="1" fill="#8a3a32"/>' +
-        '<ellipse cx="258" cy="158" rx="5" ry="2" fill="#efe4cc"/><ellipse cx="246" cy="158" rx="5" ry="2" fill="#efe4cc"/>' +
-        '<path d="M300 158v-34" stroke="#3d3434" stroke-width="3"/><circle cx="300" cy="122" r="5" fill="#ffe0a8"/><circle cx="300" cy="122" r="13" fill="#ffce84" opacity=".18"/>' +
-        '</svg>';
-    }
-    return '<svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">' +
-      '<rect width="320" height="180" fill="#123033"/>' +
-      '<circle cx="256" cy="42" r="30" fill="#f2b64b" opacity=".26"/>' +
-      '<circle cx="256" cy="42" r="15" fill="#f2b64b" opacity=".8"/>' +
-      '<path d="M0 108 34 82 62 96 94 70 128 98 162 78 196 100 232 74 266 96 300 82 320 100V180H0Z" fill="#1b4446"/>' +
-      '<rect x="14" y="98" width="86" height="62" rx="3" fill="#264a49"/>' +
-      '<rect x="112" y="86" width="74" height="74" rx="3" fill="#2a4d4b"/>' +
-      '<g fill="#f6c96e" opacity=".85"><rect x="24" y="108" width="10" height="12" rx="1"/><rect x="46" y="108" width="10" height="12" rx="1"/><rect x="68" y="130" width="10" height="12" rx="1"/><rect x="124" y="98" width="10" height="12" rx="1"/><rect x="146" y="120" width="10" height="12" rx="1"/></g>' +
-      '<g><rect x="186" y="132" width="118" height="12" rx="3" fill="#8a5a30"/><rect x="192" y="144" width="7" height="18" fill="#6d4526"/><rect x="290" y="144" width="7" height="18" fill="#6d4526"/>' +
-      '<path d="M190 132q56-16 110 0" stroke="#e8c98a" stroke-width="2" fill="none" opacity=".8"/>' +
-      '<rect x="214" y="121" width="22" height="11" rx="3" fill="#d9b06a"/><rect x="250" y="121" width="22" height="11" rx="3" fill="#d9b06a"/>' +
-      '<ellipse cx="243" cy="128" rx="12" ry="4" fill="#f3ead2"/><ellipse cx="243" cy="125" rx="6" ry="3" fill="#e8dcc0"/></g>' +
-      '<path d="M18 60q86 34 170 8" stroke="#f2b64b" stroke-width="1.4" fill="none" opacity=".55"/>' +
-      '<g fill="#ffd782"><circle cx="52" cy="70" r="3"/><circle cx="92" cy="78" r="3"/><circle cx="132" cy="76" r="3"/><circle cx="172" cy="70" r="3"/></g>' +
-      '<g fill="#ffb36b"><circle cx="222" cy="146" r="2.5"/><circle cx="268" cy="140" r="2.5"/><circle cx="286" cy="150" r="2.2"/></g>' +
-      '</svg>';
-  }
-
-  function postcardElement(pc, opts) {
-    opts = opts || {};
-    const card = document.createElement('article');
-    card.className = 'postcard' +
-      (opts.compact ? ' is-compact' : '') +
-      (opts.brief ? ' is-brief' : '');
-    card.dataset.tone = pc.tone || 'teal';
-
-    const art = document.createElement('div');
-    art.className = 'postcard-art';
-    art.innerHTML = postcardArt(pc.scene);
-
-    const body = document.createElement('div');
-    body.className = 'postcard-body';
-
-    const kicker = document.createElement('span');
-    kicker.className = 'postcard-kicker';
-    kicker.textContent = pc.kicker || 'Открытка памяти';
-    const title = document.createElement('h3');
-    title.className = 'postcard-title';
-    title.textContent = pc.title || '';
-    const sub = document.createElement('p');
-    sub.className = 'postcard-sub';
-    sub.textContent = pc.subtitle || '';
-    const text = document.createElement('p');
-    text.className = 'postcard-text';
-    text.appendChild(glossaryFragment(pc.text || ''));
-    const bata = document.createElement('blockquote');
-    bata.className = 'postcard-bata';
-    const bataLabel = document.createElement('span');
-    bataLabel.textContent = 'Бата';
-    const bataText = document.createElement('em');
-    bataText.textContent = '«' + (pc.bata || '') + '»';
-    bata.append(bataLabel, bataText);
-
-    const items = document.createElement('div');
-    items.className = 'postcard-items';
-    (pc.items || []).forEach((id) => {
-      const def = BD.MEMORY && BD.MEMORY[id];
-      if (!def) return;
-      const chip = document.createElement('span');
-      chip.className = 'memory-chip';
-      chip.title = def.desc || '';
-      const ico = document.createElement('span');
-      ico.className = 'memory-ico';
-      ico.innerHTML = icon(def.icon);
-      const label = document.createElement('span');
-      label.textContent = def.label;
-      chip.append(ico, label);
-      items.appendChild(chip);
-    });
-    if (!items.children.length) items.hidden = true;
-
-    const foot = document.createElement('div');
-    foot.className = 'postcard-foot';
-    const stamp = document.createElement('span');
-    stamp.className = 'postcard-stamp';
-    stamp.textContent = pc.stamp || 'БИШКЕК';
-    const mark = document.createElement('span');
-    mark.className = 'postcard-mark';
-    mark.innerHTML = icon(pc.icon || 'star');
-    foot.append(stamp, mark);
-
-    body.append(kicker, title, sub, text, bata, items, foot);
-    if (opts.brief) {
-      kicker.remove();
-      title.remove();
-      text.remove();
-    }
-    card.append(art, body);
-    return card;
-  }
-
-  function renderAlbum() {
-    if (!dom.albumGrid) return;
-    dom.albumGrid.innerHTML = '';
-    if (!album.length) {
-      const empty = document.createElement('div');
-      empty.className = 'album-empty';
-      empty.innerHTML = '<strong>Пока пусто.</strong><span>Проживите день в Востоке-5 — и двор оставит вам открытку.</span>';
-      dom.albumGrid.appendChild(empty);
-    } else {
-      album.forEach((pc) => dom.albumGrid.appendChild(postcardElement(pc)));
-    }
-    if (!dom.albumMemory) return;
-    const ids = [];
-    album.forEach((pc) => (pc.items || []).forEach((id) => { if (ids.indexOf(id) < 0) ids.push(id); }));
-    dom.albumMemory.innerHTML = '';
-    if (!ids.length) {
-      const note = document.createElement('p');
-      note.className = 'empty-note';
-      note.textContent = 'Предметы появятся вместе с открытками.';
-      dom.albumMemory.appendChild(note);
-      return;
-    }
-    ids.forEach((id) => {
-      const def = BD.MEMORY && BD.MEMORY[id];
-      if (!def) return;
-      const chip = document.createElement('span');
-      chip.className = 'memory-chip';
-      chip.title = def.desc || '';
-      const ico = document.createElement('span');
-      ico.className = 'memory-ico';
-      ico.innerHTML = icon(def.icon);
-      const label = document.createElement('span');
-      label.textContent = def.label;
-      chip.append(ico, label);
-      dom.albumMemory.appendChild(chip);
-    });
-  }
-
-  function openAlbum() {
-    if (!dom.album) return;
-    renderAlbum();
-    dom.album.hidden = false;
-    document.body.classList.add('album-open');
-    audio && audio.play('whoosh');
-    setTimeout(() => { if (dom.albumCloseBtn) dom.albumCloseBtn.focus({ preventScroll: true }); }, 80);
-  }
-
-  function closeAlbum() {
-    if (!dom.album || dom.album.hidden) return;
-    dom.album.hidden = true;
-    document.body.classList.remove('album-open');
-  }
-
-  /* -------------------- пятнадцать секунд тишины ----------------------- */
-
-  let vignetteTimer = 0;
-  let vignetteDone = null;
-
-  function closeVignette() {
-    if (!dom.vignette || dom.vignette.hidden) return;
-    clearTimeout(vignetteTimer);
-    vignetteTimer = 0;
-    dom.vignette.hidden = true;
-    document.body.classList.remove('vignette-open');
-    const fn = vignetteDone;
-    vignetteDone = null;
-    if (fn) fn();
-  }
-
-  function showVignette(ev, done) {
-    if (!dom.vignette || !ev || !ev.vignette) { if (done) done(); return; }
-    engine.state.vignettesShown.add(ev.id);
-    dom.vignetteWho.textContent = ev.vignette.who || ev.place || '';
-    dom.vignetteKicker.textContent = kickerText(ev, engine.state) || 'Пауза';
-    dom.vignetteText.textContent = ev.vignette.text || '';
-    dom.vignette.hidden = false;
-    document.body.classList.add('vignette-open');
-    if (dom.vignetteBar) {
-      dom.vignetteBar.style.animation = 'none';
-      void dom.vignetteBar.offsetWidth;
-      dom.vignetteBar.style.animation = '';
-    }
-    vignetteDone = done;
-    clearTimeout(vignetteTimer);
-    vignetteTimer = setTimeout(closeVignette, 15000);
-    audio && audio.play('soft');
-    setTimeout(() => { if (dom.vignetteSkip) dom.vignetteSkip.focus({ preventScroll: true }); }, 120);
-  }
-
-  /* ------------------------------ звук -------------------------------- */
-
-  function ambienceFor(scene, state) {
-    if (!audio || !audio.setAmbience) return;
-    const map = {
-      home: 'home', parents_home: 'home', kitchen_night: 'home', apa_kitchen: 'home',
-      courtyard: 'courtyard', stairwell: 'stairwell',
-      bazaar: 'market', traffic: 'street', evening: 'street', mall: 'street',
-      school_evening: 'breeze', south_panorama: 'breeze',
-      office: 'day', school: 'day', park: 'day'
-    };
-    audio.setAmbience(map[scene] || null, { rain: !!(state && state.vars && state.vars.weather === 'rain') });
-  }
-
-  /* ---------------------------- переходы ------------------------------- */
-
   function nextEvent() {
     if (!engine || !pending) return;
     audio && audio.play('next');
     pending = null;
     const r = engine.next();
-    if (r.done) { showSummary(); return; }
-    renderEvent();
-    const ev = engine.event;
-    if (ev && ev.vignette && !engine.state.vignettesShown.has(ev.id)) {
-      showVignette(ev, () => {
-        dom.eventCard.scrollTop = 0;
-        const first = dom.choices.querySelector('.choice:not(:disabled)');
-        if (first) first.focus({ preventScroll: true });
-      });
-    }
+    if (r.done) {
+      if (r.summary && r.summary.routeEnding) showPostcard(r.summary.routeEnding, { route: true });
+      else showSummary();
+    } else renderEvent();
   }
 
   /* ---------------------------- финалы -------------------------------- */
 
-  const SOFT_TIPS = {
-    exhaustion: 'Силы кончились раньше дня — это не провал. В Бишкеке на такое говорят: «Спи, сынок, утро само разберётся».',
-    burnout: 'Иногда надо не доделать, а выдохнуть. Двор без вас не развалится, а чай можно выпить и завтра.',
-    bankrupt: 'Двор не считает сомы. Долг отдашь — сначала поешь. Так тут принято.',
-    default: 'День можно закончить раньше. От этого он не становится хуже — просто становится короче.'
-  };
-
+  /* Вместо Game Over — мягкая концовка: тёплая открытка с бата и собранными предметами. */
   function showGameOver(outcome) {
-    const s = engine.state;
-    const soft = BD.pickSoftPostcard ? BD.pickSoftPostcard(s, outcome.ending) : null;
-    const pc = BD.hydratePostcard ? BD.hydratePostcard(soft, s) : soft;
-    const tone = (pc && pc.tone) || 'teal';
-
-    showScreen('gameover');
-    document.body.dataset.tone = tone;
-    dom.gameoverKicker.textContent = (pc && pc.kicker) || 'Тихий финал';
-    dom.gameoverTitle.textContent = (pc && pc.title) || 'День решил остановиться';
-    dom.gameoverText.textContent = (pc && pc.text) || 'Вы дошли до вечера, но силы закончились раньше планов.';
-    dom.gameoverTip.textContent = SOFT_TIPS[outcome.ending] || SOFT_TIPS.default;
-    dom.gameoverIcon.innerHTML = icon((pc && pc.icon) || 'night');
-    dom.goBudget.textContent = fmtMoney(s.budget) + ' сом';
-    dom.goEnergy.textContent = Math.round(s.energy) + '%';
-    dom.goStress.textContent = Math.round(s.stress) + '%';
-    dom.goTime.textContent = fmtTime(s.time);
-    dom.goLast.textContent = outcome.result
-      ? 'Последнее, что вы успели: ' + outcome.result
-      : 'День закончился раньше, чем вы успели к нему привыкнуть.';
-
-    if (dom.softPostcard) {
-      dom.softPostcard.innerHTML = '';
-      if (pc) {
-        dom.softPostcard.appendChild(postcardElement(pc, { compact: true, brief: true }));
-        savePostcard(pc);
-      }
-      dom.softPostcard.hidden = !pc;
-    }
-
-    dom.restartBtn.innerHTML = 'Прожить день иначе ' + icon('restart');
-    audio && audio.play('soft');
-    const scene = (pc && pc.scene) || 'evening';
-    renderer.setScene(scene);
-    renderer.setFestive(scene === 'courtyard');
-    renderer.setTime(Math.min(s.time, 20 * 60 + 30));
-    ambienceFor(scene, s);
-    setTimeout(() => dom.restartBtn.focus({ preventScroll: true }), 300);
+    const card = BD.softEnding(outcome.ending, engine.state.district);
+    showPostcard(card, { soft: true });
   }
+
+  /* ---------------------------- открытки -------------------------------- */
+
+  function collectPostcard(id) {
+    let got = [];
+    try { got = JSON.parse(localStorage.getItem('bd_postcards') || '[]'); } catch (e) { got = []; }
+    if (!Array.isArray(got)) got = [];
+    if (got.indexOf(id) < 0) got.push(id);
+    try { localStorage.setItem('bd_postcards', JSON.stringify(got)); } catch (e) { /* ignore */ }
+    if (typeof updateAlbumCount === 'function') updateAlbumCount();
+    return got.length;
+  }
+
+
+  /* ---------------------------- альбом открыток ------------------------- */
+  function allPostcards() {
+    const list = [];
+    Object.keys(BD.POSTCARDS || {}).forEach((k) => list.push(BD.POSTCARDS[k]));
+    const soft = BD.SOFT_ENDINGS || {};
+    Object.keys(soft).forEach((kind) => Object.keys(soft[kind]).forEach((d) => { if (soft[kind][d] && soft[kind][d].id) list.push(soft[kind][d]); }));
+    const seen = {};
+    return list.filter((c) => c && c.id && !seen[c.id] && (seen[c.id] = 1));
+  }
+  function collectedIds() {
+    try { const g = JSON.parse(localStorage.getItem('bd_postcards') || '[]'); return Array.isArray(g) ? g : []; } catch (e) { return []; }
+  }
+  const DISTRICT_NAMES = { south: 'Юг', center: 'Центр', vostok5: 'Восток-5' };
+  function updateAlbumCount() {
+    const n = collectedIds().length, el = document.getElementById('albumCount');
+    if (el) el.textContent = n + ' / ' + (allPostcards().length);
+  }
+  function openAlbum() {
+    const grid = document.getElementById('albumGrid'), got = collectedIds();
+    grid.innerHTML = '';
+    allPostcards().forEach((c) => {
+      const open = got.indexOf(c.id) >= 0;
+      const el = document.createElement('article');
+      el.className = 'album-card' + (open ? '' : ' is-locked') + (c.kind === 'soft' ? ' is-soft' : '');
+      const k = document.createElement('p'); k.className = 'pc-kicker';
+      k.textContent = (DISTRICT_NAMES[c.district] || 'Город') + (c.kind === 'soft' ? ' · тихий финал' : ' · финал');
+      const h = document.createElement('h3'); h.textContent = open ? c.title : 'Закрытая открытка';
+      const p = document.createElement('p'); p.className = 'album-text'; p.textContent = open ? c.bata : 'Её ещё не получали. Пройдите день по-другому.';
+      el.append(k, h, p); grid.appendChild(el);
+    });
+    document.getElementById('album').hidden = false;
+    document.body.classList.add('album-open');
+  }
+  function closeAlbum() { document.getElementById('album').hidden = true; document.body.classList.remove('album-open'); }
+  document.addEventListener('click', (e) => {
+    if (e.target.closest && e.target.closest('#albumBtn')) openAlbum();
+    else if (e.target.closest && e.target.closest('#albumCloseBtn')) closeAlbum();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !document.getElementById('album').hidden) closeAlbum(); });
+  updateAlbumCount();
+
+  function showPostcard(card, opts) {
+    opts = opts || {};
+    clearVignette();
+    hideGloss();
+    const s = engine.state;
+    showScreen('postcard');
+    document.body.dataset.tone = card.tone || 'gold';
+    dom.pcKicker.textContent = card.kicker;
+    dom.pcTitle.textContent = card.title;
+    renderParagraphs(dom.pcText, card.text);
+    dom.pcItems.innerHTML = '';
+    s.memories.forEach((k) => {
+      const it = BD.ITEMS && BD.ITEMS[k];
+      if (!it) return;
+      const el = document.createElement('span');
+      el.className = 'pc-item';
+      const b = document.createElement('b');
+      b.textContent = '\u25c6 ' + it.label;
+      el.append(b, document.createTextNode(it.line));
+      dom.pcItems.appendChild(el);
+    });
+    dom.pcBata.innerHTML = '';
+    appendRich(dom.pcBata, card.bata);
+    dom.pcTip.hidden = !card.tip;
+    dom.pcTip.textContent = card.tip ? 'Как не повторить: ' + card.tip : '';
+    const n = collectPostcard(card.id);
+    dom.pcStamp.textContent = 'Открытка в коллекции: ' + n + ' из ' + BD.POSTCARD_IDS.length;
+    dom.pcNextBtn.hidden = !opts.route;
+    dom.pcAgainBtn.hidden = !opts.soft;
+    dom.pcDistrictBtn.hidden = !opts.soft;
+    dom.pcMenuBtn.hidden = !opts.soft;
+    const district = BD.getDistrict(s.district);
+    dom.pcAgainBtn.textContent = 'Ещё раз: ' + (district ? district.name : 'день');
+    renderer.setScene(card.scene, s.district, card.variant || '');
+    renderer.setTime(opts.soft ? s.time : Math.max(s.time, 21 * 60));
+    renderer.setWeather('clear');
+    if (audio) {
+      audio.setAmbient(SCENE_AMBIENT[card.scene] || 'room', false);
+      setTimeout(() => audio.playMotif('bata'), 500);
+      audio.play(opts.soft ? 'next' : 'success');
+    }
+    dom.pcCard.style.animation = 'none';
+    void dom.pcCard.offsetWidth;
+    dom.pcCard.style.animation = '';
+    dom.pcCard.scrollTop = 0;
+    setTimeout(() => { const b = [dom.pcNextBtn, dom.pcAgainBtn].find((x) => !x.hidden); if (b) b.focus({ preventScroll: true }); }, 400);
+  }
+
+  /* ---------------------------- итоги --------------------------------- */
 
   function drawStressChart(summary) {
     const c = dom.stressChart;
@@ -1545,88 +1248,13 @@
     ctx.fillText('21:30', pad.l + iw, h - 7);
   }
 
-  function renderSummaryStory(sum, pc) {
-    if (dom.postcardPanel && dom.postcardMount) {
-      dom.postcardMount.innerHTML = '';
-      if (pc) {
-        dom.postcardMount.appendChild(postcardElement(pc));
-        savePostcard(pc);
-        dom.postcardPanel.hidden = false;
-      } else {
-        dom.postcardPanel.hidden = true;
-      }
-    }
-
-    const bonds = sum.bonds || {};
-    const keys = (BD.BOND_ORDER || Object.keys(bonds)).filter((k) => (bonds[k] || 0) > 0);
-    const items = sum.memoryItems || [];
-    const districtId = sum.district && sum.district.id;
-
-    if (dom.summaryBonds) {
-      dom.summaryBonds.innerHTML = '';
-      keys.forEach((name) => {
-        const def = (BD.BONDS && BD.BONDS[name]) || { label: name, icon: 'heart' };
-        const chip = document.createElement('span');
-        chip.className = 'bond-chip';
-        chip.title = def.hint || '';
-        const ico = document.createElement('span');
-        ico.className = 'bond-ico';
-        ico.innerHTML = icon(def.icon);
-        const label = document.createElement('span');
-        label.className = 'bond-name';
-        label.textContent = BD.bondLabel ? BD.bondLabel(name, districtId) : def.label;
-        const count = document.createElement('b');
-        count.className = 'bond-count';
-        count.textContent = '· ' + bonds[name];
-        chip.append(ico, label, count);
-        dom.summaryBonds.appendChild(chip);
-      });
-      if (!keys.length) {
-        const note = document.createElement('p');
-        note.className = 'empty-note';
-        note.textContent = 'День прошёл без новых знакомств.';
-        dom.summaryBonds.appendChild(note);
-      }
-    }
-
-    if (dom.summaryMemory) {
-      dom.summaryMemory.innerHTML = '';
-      items.forEach((item) => {
-        const chip = document.createElement('span');
-        chip.className = 'memory-chip';
-        chip.title = item.desc || '';
-        const ico = document.createElement('span');
-        ico.className = 'memory-ico';
-        ico.innerHTML = icon(item.icon || 'star');
-        const label = document.createElement('span');
-        label.textContent = item.label;
-        chip.append(ico, label);
-        dom.summaryMemory.appendChild(chip);
-      });
-      if (!items.length) {
-        const note = document.createElement('p');
-        note.className = 'empty-note';
-        note.textContent = 'Ничего не взяли с собой — только вечер.';
-        dom.summaryMemory.appendChild(note);
-      }
-    }
-
-    if (dom.summaryMemoryCount) dom.summaryMemoryCount.textContent = String(items.length);
-    if (dom.bondsPanel) dom.bondsPanel.hidden = !(keys.length || items.length);
-    updateAlbumCount();
-  }
-
   function showSummary() {
     if (!engine) return;
     const sum = engine.summary || engine.finish();
-    const pc = sum.postcard && BD.hydratePostcard ? BD.hydratePostcard(sum.postcard, engine.state) : null;
     showScreen('summary');
-    renderer.setScene(pc ? pc.scene : 'evening');
-    renderer.setFestive(!!pc && pc.scene === 'courtyard');
+    renderer.setScene('evening');
     renderer.setTime(CONFIG.dayEnd);
     document.body.dataset.tone = 'teal';
-    ambienceFor(pc ? pc.scene : 'evening', engine.state);
-    renderSummaryStory(sum, pc);
 
     dom.summaryVerdictTitle.textContent = sum.verdict.title;
     dom.summaryVerdictText.textContent = sum.verdict.text;
@@ -1694,11 +1322,12 @@
   }
 
   function goMenu() {
+    clearVignette();
     showScreen('intro');
     document.body.dataset.tone = 'teal';
+    audio && audio.setAmbient('city', false);
     renderer.setScene('traffic');
     renderer.setTime(CONFIG.dayStart);
-    if (audio && audio.setAmbience) audio.setAmbience(null);
     updateIntroBest();
   }
 
@@ -1719,23 +1348,32 @@
     dom.restartBtn.addEventListener('click', () => startGame(currentDistrictId()));
     dom.goDistrictBtn.addEventListener('click', goDistrict);
     dom.goMenuBtn.addEventListener('click', goMenu);
+    dom.pcNextBtn.addEventListener('click', showSummary);
+    dom.pcAgainBtn.addEventListener('click', () => startGame(currentDistrictId()));
+    dom.pcDistrictBtn.addEventListener('click', goDistrict);
+    dom.pcMenuBtn.addEventListener('click', goMenu);
 
-    if (dom.albumBtn) dom.albumBtn.addEventListener('click', openAlbum);
-    if (dom.albumCloseBtn) dom.albumCloseBtn.addEventListener('click', closeAlbum);
-    document.querySelectorAll('[data-album]').forEach((b) => b.addEventListener('click', openAlbum));
-    document.querySelectorAll('[data-album-close]').forEach((b) => b.addEventListener('click', closeAlbum));
-    if (dom.vignetteSkip) dom.vignetteSkip.addEventListener('click', closeVignette);
+    // Подсказки глоссария: наведение и фокус.
+    document.addEventListener('mouseover', (e) => { const g = e.target.closest && e.target.closest('.gloss'); if (g) showGloss(g); });
+    document.addEventListener('mouseout', (e) => { if (e.target.closest && e.target.closest('.gloss')) hideGloss(); });
+    document.addEventListener('focusin', (e) => { const g = e.target.closest && e.target.closest('.gloss'); if (g) showGloss(g); });
+    document.addEventListener('focusout', (e) => { if (e.target.closest && e.target.closest('.gloss')) hideGloss(); });
 
-    if (dom.volRange && audio) {
-      dom.volRange.value = String(Math.round((audio.volume != null ? audio.volume : 0.7) * 100));
-      dom.volRange.addEventListener('input', () => {
-        audio.setVolume(Number(dom.volRange.value) / 100);
-        if (audio.muted) { audio.setMuted(false); updateMuteUI(); }
-      });
-    }
+    // Панель звука: громкость, атмосфера, мотив.
+    dom.volRange.value = String(Math.round(audio.settings.volume * 100));
+    dom.ambCheck.checked = audio.settings.ambient;
+    dom.musCheck.checked = audio.settings.music;
+    dom.audioBtn.addEventListener('click', () => {
+      const open = dom.audioPanel.hidden;
+      dom.audioPanel.hidden = !open;
+      dom.audioBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    dom.volRange.addEventListener('input', () => audio.setVolume(Number(dom.volRange.value) / 100));
+    dom.ambCheck.addEventListener('change', () => { audio.ensure(); audio.setAmbientOn(dom.ambCheck.checked); });
+    dom.musCheck.addEventListener('change', () => { audio.setMusicOn(dom.musCheck.checked); if (dom.musCheck.checked) audio.playMotif('warm'); });
 
     [dom.startBtn, dom.playAgainBtn, dom.districtBtn, dom.restartBtn, dom.goDistrictBtn,
-      dom.menuBtn, dom.goMenuBtn, dom.districtBackBtn, dom.muteBtn].forEach((b) => {
+      dom.menuBtn, dom.goMenuBtn, dom.districtBackBtn, dom.muteBtn, dom.pcNextBtn, dom.pcAgainBtn, dom.pcDistrictBtn, dom.pcMenuBtn].forEach((b) => {
       if (!b) return;
       b.addEventListener('mouseenter', () => audio && audio.play('hover'));
     });
@@ -1753,16 +1391,13 @@
 
     document.addEventListener('keydown', (e) => {
       const key = e.key;
-      if (dom.album && !dom.album.hidden) {
-        if (key === 'Escape' || key === 'Backspace') { e.preventDefault(); closeAlbum(); }
-        return;
-      }
-      if (dom.vignette && !dom.vignette.hidden) {
-        if (key === 'Escape' || key === 'Enter' || key === ' ') { e.preventDefault(); closeVignette(); }
-        return;
-      }
       if (key === 'm' || key === 'M' || key === 'ь' || key === 'Ь') {
         toggleMute();
+        return;
+      }
+      if (key === 'Escape' && !dom.audioPanel.hidden) {
+        dom.audioPanel.hidden = true;
+        dom.audioBtn.setAttribute('aria-expanded', 'false');
         return;
       }
       if (key === 'Escape' && !dom.district.hidden) {
@@ -1777,6 +1412,7 @@
         if (e.target && e.target.tagName === 'BUTTON') return;
         if (!dom.intro.hidden) { e.preventDefault(); goDistrict(); return; }
         if (!dom.summary.hidden) { e.preventDefault(); startGame(currentDistrictId()); return; }
+        if (!dom.postcard.hidden) { e.preventDefault(); const b = [dom.pcNextBtn, dom.pcAgainBtn].find((x) => !x.hidden); if (b) b.click(); return; }
         if (!dom.gameover.hidden) { e.preventDefault(); startGame(currentDistrictId()); return; }
         if (!dom.play.hidden && !dom.consequence.hidden) { e.preventDefault(); nextEvent(); return; }
       }
@@ -1809,7 +1445,6 @@
     try { bestScore = parseInt(localStorage.getItem('bd_best') || '0', 10) || 0; } catch (e) { bestScore = 0; }
     updateMuteUI();
     updateIntroBest();
-    updateAlbumCount();
     renderDistricts();
     bind();
     showScreen('intro');

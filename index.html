@@ -13,17 +13,19 @@
   <canvas id="scene" aria-hidden="true"></canvas>
   <div class="scene-shade" aria-hidden="true"></div>
 
-  <div class="sound-dock">
-    <label class="vol" title="Громкость">
-      <span class="vol-ico" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4Z"/><path d="M16 8.5a5 5 0 0 1 0 7"/></svg>
-      </span>
-      <input id="volRange" class="vol-range" type="range" min="0" max="100" value="70" aria-label="Громкость звука">
-    </label>
-    <button id="muteBtn" class="mute-btn" type="button" aria-pressed="false" aria-label="Выключить звук" title="Звук (M)">
-      <span id="muteIcon" class="mute-icon"></span>
-    </button>
+  <button id="muteBtn" class="mute-btn" type="button" aria-pressed="false" aria-label="Выключить звук" title="Звук (M)">
+    <span id="muteIcon" class="mute-icon"></span>
+  </button>
+
+  <button id="audioBtn" class="mute-btn audio-btn" type="button" aria-expanded="false" aria-controls="audioPanel" aria-label="Настройки звука" title="Настройки звука">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"/><circle cx="9" cy="6" r="2" fill="currentColor"/><circle cx="15" cy="12" r="2" fill="currentColor"/><circle cx="8" cy="18" r="2" fill="currentColor"/></svg>
+  </button>
+  <div id="audioPanel" class="audio-panel glass" hidden>
+    <label class="ap-row"><span>Громкость</span><input id="volRange" type="range" min="0" max="100" step="5" value="70" aria-label="Громкость"></label>
+    <label class="ap-row ap-check"><input id="ambCheck" type="checkbox" checked><span>Атмосфера двора и города</span></label>
+    <label class="ap-row ap-check"><input id="musCheck" type="checkbox" checked><span>Мотив комуза</span></label>
   </div>
+  <div id="glossTip" class="gloss-tip" role="tooltip" hidden></div>
 
   <header id="hud" class="hud" hidden>
     <div class="brand">
@@ -113,11 +115,11 @@
           <button id="startBtn" class="btn btn-primary" type="button">
             Начать день <span class="btn-arrow" aria-hidden="true">→</span>
           </button>
+          <button id="albumBtn" class="btn btn-ghost" type="button">Альбом открыток <span id="albumCount" class="album-count">0</span></button>
           <span id="introBest" class="best-label" hidden></span>
         </div>
 
         <p class="intro-hint">Выбирайте мышью или клавишами <kbd>1</kbd>–<kbd>3</kbd>. Звук — <kbd>M</kbd>.</p>
-        <button class="album-link" type="button" data-album>Мои открытки <span data-album-count>0</span></button>
 
         <div class="intro-facts">
           <div class="fact">
@@ -179,9 +181,8 @@
 
         <h2 id="eventTitle" class="event-title">Будильник прозвенел дважды</h2>
         <div id="eventText" class="event-text"></div>
-        <div id="eventDialogue" class="event-dialogue" hidden></div>
         <div id="statusRow" class="status-row" hidden></div>
-        <div id="bondRow" class="bond-row" hidden></div>
+        <div id="vignetteBar" class="vignette-bar" hidden aria-hidden="true"><i></i></div>
 
         <div id="choices" class="choices" role="group" aria-label="Варианты действий"></div>
         <p id="choiceHint" class="choice-hint">Наведите на вариант — увидите, как он повлияет на день. Клавиши <kbd>1</kbd>–<kbd>4</kbd>.</p>
@@ -191,7 +192,7 @@
             <span class="consequence-check" aria-hidden="true">✓</span>
             <span>Ваш выбор</span>
           </div>
-          <p id="consequenceText" class="consequence-text"></p>
+          <div id="consequenceText" class="consequence-text"></div>
           <div id="applied" class="applied" aria-label="Изменения показателей"></div>
           <button id="nextBtn" class="btn btn-next" type="button">Дальше →</button>
         </div>
@@ -232,27 +233,6 @@
               <div><span>Заработано</span><strong id="sumEarned" class="pos">0 сом</strong></div>
               <div><span>Сэкономлено</span><strong id="sumSaved" class="pos">0 сом</strong></div>
             </div>
-          </section>
-
-          <section id="postcardPanel" class="panel postcard-panel" hidden>
-            <div class="panel-head">
-              <span class="panel-label">Открытка памяти</span>
-              <span class="panel-note">останется в коллекции</span>
-            </div>
-            <div id="postcardMount" class="postcard-mount"></div>
-          </section>
-
-          <section id="bondsPanel" class="panel bonds-panel" hidden>
-            <div class="panel-head">
-              <span class="panel-label">Кто был рядом</span>
-              <span class="panel-note">за этот день</span>
-            </div>
-            <div id="summaryBonds" class="summary-bonds"></div>
-            <div class="memory-head">
-              <span class="panel-label">Память дня</span>
-              <span class="panel-note"><strong id="summaryMemoryCount">0</strong> предметов</span>
-            </div>
-            <div id="summaryMemory" class="summary-memory"></div>
           </section>
 
           <section class="panel chart-panel">
@@ -302,7 +282,6 @@
 
         <div class="summary-actions">
           <button id="playAgainBtn" class="btn btn-primary" type="button">Сыграть ещё раз <span class="btn-arrow" aria-hidden="true">↻</span></button>
-          <button id="albumBtn" class="btn btn-ghost" type="button">Открытки <span id="albumCount" class="album-count">0</span></button>
           <button id="districtBtn" class="btn btn-ghost" type="button">Другой район</button>
           <button id="menuBtn" class="btn btn-ghost" type="button">Главное меню</button>
         </div>
@@ -324,9 +303,8 @@
           <div><span>Время</span><strong id="goTime">07:30</strong></div>
         </div>
         <p id="goLast" class="go-last"></p>
-        <div id="softPostcard" class="soft-postcard"></div>
         <div class="go-tip">
-          <span class="go-tip-label">На память</span>
+          <span class="go-tip-label">Как не повторить</span>
           <span id="gameoverTip"></span>
         </div>
         <div class="go-actions">
@@ -336,56 +314,55 @@
         </div>
       </div>
     </section>
+
+    <!-- ============================ ОТКРЫТКА ============================ -->
+    <section id="postcard" class="screen postcard" hidden>
+      <article id="pcCard" class="pc-card" aria-live="polite">
+        <p id="pcKicker" class="pc-kicker">Открытка</p>
+        <h2 id="pcTitle">Двор как семья</h2>
+        <div id="pcText" class="pc-text"></div>
+        <div id="pcItems" class="pc-items" aria-label="Предметы памяти"></div>
+        <blockquote class="pc-bata"><span class="pc-bata-label">Бата</span><p id="pcBata"></p></blockquote>
+        <p id="pcTip" class="pc-tip" hidden></p>
+        <div class="pc-foot">
+          <span id="pcStamp" class="pc-stamp">Открытка 1 из 7</span>
+          <div class="pc-actions">
+            <button id="pcNextBtn" class="btn btn-primary" type="button">К итогам дня</button>
+            <button id="pcAgainBtn" class="btn btn-ghost" type="button" hidden>Попробовать снова</button>
+            <button id="pcDistrictBtn" class="btn btn-ghost" type="button" hidden>Другой район</button>
+            <button id="pcMenuBtn" class="btn btn-ghost" type="button" hidden>В меню</button>
+          </div>
+        </div>
+      </article>
+    </section>
+    <section id="album" class="screen album" hidden aria-label="Альбом открыток">
+      <div class="album-shell">
+        <header class="album-head">
+          <div><p class="eyebrow">Память города</p><h2>Альбом открыток</h2></div>
+          <button id="albumCloseBtn" class="btn btn-ghost" type="button">Закрыть</button>
+        </header>
+        <div id="albumGrid" class="album-grid"></div>
+      </div>
+    </section>
   </main>
-
-  <div id="vignette" class="vignette" hidden role="dialog" aria-modal="true" aria-label="Пауза во дворе">
-    <div class="vignette-card">
-      <span id="vignetteWho" class="vignette-who"></span>
-      <span id="vignetteKicker" class="vignette-kicker"></span>
-      <p id="vignetteText" class="vignette-text"></p>
-      <div class="vignette-track" aria-hidden="true"><i id="vignetteBar" class="vignette-bar"></i></div>
-      <button id="vignetteSkip" class="btn btn-ghost vignette-skip" type="button">Не ждать</button>
-    </div>
-  </div>
-
-  <div id="album" class="album" hidden role="dialog" aria-modal="true" aria-label="Коллекция открыток памяти">
-    <div class="album-shell">
-      <header class="album-head">
-        <div>
-          <p class="eyebrow"><span class="eyebrow-rule"></span> Коллекция</p>
-          <h2 class="album-title">Открытки <em>памяти</em></h2>
-        </div>
-        <button id="albumCloseBtn" class="btn btn-ghost" type="button">← Назад</button>
-      </header>
-      <div id="albumGrid" class="album-grid"></div>
-      <div class="album-memory-wrap">
-        <div class="panel-head">
-          <span class="panel-label">Предметы, которые остались</span>
-          <span class="panel-note">собираются по ходу истории</span>
-        </div>
-        <div id="albumMemory" class="summary-memory"></div>
-      </div>
-      <div class="album-foot">
-        <button class="btn btn-primary" type="button" data-album-close>Вернуться</button>
-      </div>
-    </div>
-  </div>
 
   <div id="floatLayer" class="float-layer" aria-hidden="true"></div>
 
-  <script src="js/events/base.js"></script>
-  <script src="js/events/culture.js"></script>
-  <script src="js/events/districts.js"></script>
-  <script src="js/events/day.js"></script>
-  <script src="js/events/badges.js"></script>
+  <script src="js/events/core.js"></script>
+  <script src="js/events/base-events.js"></script>
+  <script src="js/events/story-core.js"></script>
+  <script src="js/events/hotspots.js"></script>
+  <script src="js/events/districts/south.js"></script>
+  <script src="js/events/districts/south-story.js"></script>
+  <script src="js/events/districts/center.js"></script>
+  <script src="js/events/districts/center-story.js"></script>
+  <script src="js/events/districts/vostok5.js"></script>
+  <script src="js/events/districts/vostok5-story.js"></script>
+  <script src="js/events/districts/shared.js"></script>
   <script src="js/events/pivots.js"></script>
-  <script src="js/events/shared.js"></script>
-  <script src="js/events/south.js"></script>
-  <script src="js/events/center.js"></script>
-  <script src="js/events/vostok5.js"></script>
-  <script src="js/events/story.js"></script>
-  <script src="js/events/verdicts.js"></script>
-  <script src="js/events/index.js"></script>
+  <script src="js/events/badges.js"></script>
+  <script src="js/events/endings.js"></script>
+  <script src="js/events/finalize.js"></script>
   <script src="js/audio.js"></script>
   <script src="js/renderer.js"></script>
   <script src="js/game.js"></script>

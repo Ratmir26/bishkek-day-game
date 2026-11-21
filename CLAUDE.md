@@ -12,40 +12,22 @@
 ## Архитектура (модули делят глобальный `BD`)
 | Файл | Роль |
 |---|---|
-| `js/events/base.js` | `BD.CONFIG`, `BD.DISTRICTS`, `BD.STATUS`, `BD.VERDICTS`, `BD.ENDINGS` и общие помощники времени |
-| `js/events/culture.js` | `BD.GLOSSARY` (подсказки к словам), `BD.BONDS` (счётчики отношений), `BD.MEMORY` (предметы-память) |
-| `js/events/districts.js` | Базовые события дня и районные оверлеи; `BD.applyDistrict` |
-| `js/events/day.js` | События общего дня: утро, дорога, школа, офис, вечер |
-| `js/events/vostok5.js` | Сюжет Востока-5: Апа Гуля, Бакыт, двор, лестница, ашар, кухня, три финала |
-| `js/events/south.js` | Сюжет Юга «Бата на дорогу»: звонок апы, школа №61, Орто-Сай, троллейбус, кухня, Панорама и три финала |
-| `js/events/shared.js`, `center.js` | Общие и районные события Центра |
-| `js/events/story.js` | `BD.POSTCARDS`, `BD.pickPostcard`, `BD.pickSoftPostcard`, `BD.hydratePostcard` — открытки памяти и тихие финалы |
-| `js/events/pivots.js`, `badges.js`, `verdicts.js` | Развороты fail-forward, ачивки и вердикты |
-| `js/events/index.js` | Склейка `BD.DISTRICT_EVENTS` в `BD.EVENTS`, сортировка по времени, `BD.getEvent`, `BD.eventsFor` |
-| `js/game.js` | `GameState`, `Engine` (логика, флаги, отношения, память, развороты, счёт), затем UI: экраны, HUD, карточка события, открытки, альбом, итоги |
-| `js/renderer.js` | Canvas-сцены 1600×900 (home, traffic, school, **school_evening**, office, bazaar, evening, park, courtyard, stairwell, kitchen_night, **apa_kitchen**, **south_panorama**, mall, parents_home), вывески по району, HiDPI, свет по времени суток |
-| `js/audio.js` | Web Audio: фоновые подложки района, дождь, комуз (Карплус-Стронг), громкость и mute; `BD.KOMUZ_URL` для живой записи |
+| `js/events/*.js` | Контент модулями (порядок загрузки = `index.html` = `events/node-loader.js`): `core` (CONFIG, STATUS, applyDistrict), `base-events` (граф дня), `districts/{south,center,vostok5}` (оверлеи и районные события), `story-core` (BONDS, ITEMS, GLOSSARY, POSTCARDS, SOFT_ENDINGS, pickRouteEnding), `districts/vostok5-story` (сюжет Востока-5), `districts/shared`, `pivots`, `badges`, `endings`, `finalize` (сортировка по `time` — всегда последним) |
+| `js/game.js` | `GameState`, `Engine` (логика, флаги, развороты, счёт), затем UI: экраны, HUD, карточка события, итоги |
+| `js/renderer.js` | Canvas-сцены 1600×900 (home, traffic, school, office, bazaar, evening, **park**, **courtyard**), вывески по району, HiDPI, свет по времени суток |
+| `js/audio.js` | SFX, mute, атмосфера (`setAmbient(profile, rain)`), мотив струны (`playMotif`), настройки `bd_audio` |
 | `styles.css` | Стеклянный UI. Блок выбора **статичен**: без подъёмов и сдвигов, превью-бейджи лежат поверх описания |
 
-Порядок подключения скриптов: `base, culture, districts, day, badges, pivots, shared, south, center, vostok5, story, verdicts, index, audio, renderer, game`.
-
 Тесты/отладка: `BD.debug.engine` и `BD.debug.renderer` доступны в консоли после старта. Движок работает и в Node
-(загрузите `js/events/*.js` в указанном порядке; UI-часть `game.js` в Node не исполняется).
+(`require('./js/events/node-loader.js'); globalThis.BD`, затем `require('./js/game.js')`), UI-часть `game.js` в Node не исполняется.
 
 ## Состояние и флаги
 - `state.district`: `south` | `center` | `vostok5` (старое `vostok` принимается). Метрики: бюджет (сом), энергия, стресс, время 07:30→21:30.
-- Восток-5 стартует с 92% энергии: сюжетный вечер длиннее обычного дня, и финал должен быть достижим без тихого финала.
 - Флаги: `state.has / set / clear`. Пишем и camelCase, и snake_case — они равны: `helped_neighbor == helpedNeighbor`,
   `stuck_in_chuy_traffic == stuckInTraffic`, `missed_bus_7 == missedBus7`.
   Ключевые: `bought_samsa`, `helped_neighbor`, `stuck_in_chuy_traffic`, `missed_bus_7`, `walked_through_park`, `gotSarkyt`, `helpedDad`,
-  `metClassmate`, `inDebt`, `pivotUsed`; сюжет Востока-5 — `apaNote`, `knowsAnniversary`, `asharReady`, `bataGiven`, `endingFamily/Kitchen/Surprise`;
-  сюжет Юга — `called_apa` / `half_promise` / `brushed_off_apa`, `met_teacher`, `bought_flour` / `bought_ready_boorsok` / `empty_handed`,
-  `brought_kurut`, `cooked_boorsok`, `saw_ala_too`, `endingBata/Pride/NoTable`.
+  `metClassmate`, `inDebt`, `pivotUsed`.
 - Переменные `state.vars` (transportType, caffeinated, weather, locationStart…) — для текста и условий.
-- `state.bonds` — отношения (`parents`, `apa`, `erlan`, `bakyt`, `dvor`, `kid`), `state.memory` — предметы (`photo`, `kurut`, `note`, `cassette`, `kurpacha`, `kurutBag`, `schoolNote`, `warmBread`).
-  Выборы объявляют их через `bonds: { apa: 2 }` и `memory: 'note'`; UI показывает ненавязчивые чипы и подсказки.
-  `BD.bondLabel('apa', district)` даёт районную подпись: на Юге `apa` — «Апа Гульмира», на Востоке-5 — «Апа Гуля».
-- `state.vignettesShown` не даёт повторять 15-секундные паузы; `state.postcard` — открытка, которую двор оставил на память.
 
 ## Правила повествования («Choices Matter»)
 1. **Никакой иллюзии выбора.** Каждый вариант меняет сцену, открывает/закрывает последующие события или цену дня.
@@ -58,31 +40,10 @@
 ## Ветвление по районам
 - Событие: `districts: ['south']`, `requiredFlags`, `forbiddenFlags`, `setsFlags`, `when(s)`. Выбор: `requiredFlags`, `setsFlags`, `pivot`.
 - Район переопределяет базовые события через `BD.DISTRICTS[i].events[id]` (место, текст, варианты, сцена) — база не мутируется.
-- Районные события: `south` — линия «Бата на дорогу» (`south-call`, `south-school`, `south-bazaar`, `south-trolley`,
-  `south-kitchen`, `south-farewell`); `center` — Дубовый парк, встреча с Нурланом (по флагу `walked_through_park`);
-  `vostok5` — сюжетная линия «Двор, где всё про всех». Общие вечерние слоты `family-evening`, `neighbor-thanks`, `parents-call`
-  на Востоке-5 выключены: их место занимают `courtyard`, `vostok-stairwell`, `vostok-ashar`, `vostok-kitchen`.
-  На Юге `south.js` гасит `bazaar`, `neighbor`, `family-evening` и `parents-call` (`when: () => false`), чтобы вечер шёл сюжетом.
-- Районный оверлей события может менять `place`, `kicker`, `title`, `scene`, `text`/`appendText`, `choices`/`choicesReplace`,
-  `onEnter`. `choices` сливаются по `id`, поэтому можно точечно смягчить цену выбора (пример: сумки Апы Гули на Востоке-5).
-- После `applyDistrict` движок гарантирует бесплатный вариант без условий; если у события его нет, добавляется `BD.FALLBACKS`.
+- Районные события: `south` — тандыр у школы; `center` — Дубовый парк, встреча с Нурланом (по флагу `walked_through_park`);
+  `vostok5` — двор, «Народный», чайхана; `south` + `vostok5` — «Спасибо от апы» (по флагу `helped_neighbor`).
 - Вывески сцен зависят от района (`Renderer.sign`): «7 АПРЕЛЯ» / «ЧУЙ ПРОСПЕКТ» / «ПР. ЧУЙ · ВОСТОК-5», «ШКОЛА №61»,
   «ОРТО-САЙ» (рынок) / ЦУМ «АЙЧУРЕК» (сцена `mall`) / «МАДИНА» (рынок). Рынок — только Орто-Сай и «Мадина»; ЦУМ/ГУМ/«Фрунзе»/«Глобус» рисуются сценой `mall` (`sceneLabel`). Вывески не должны оказываться под карточкой выбора (она слева, ≈43% ширины).
-
-## Сюжет Юга «Бата на дорогу»
-- Пять тактов и дорога между ними: утренний звонок апы (`south-call`, 08:06) → школа №61 и учительница Айша-эже (`south-school`, 12:52) →
-  Орто-Сай (`south-bazaar`, 17:45) → троллейбус по Юнусалиева (`south-trolley`, 19:40) → кухня апы (`south-kitchen`, 20:10) →
-  Панорама и бата (`south-farewell`, 20:55).
-- Утренние слова возвращаются вечером: `met_teacher` открывает «Сказать то, что не говорил»; `bought_flour` открывает
-  «Раскатать тесто вместе с апой»; без муки остаётся помощь со столом или шаг в сторону. `say-from-heart` заблокирован без
-  `met_teacher` с понятной причиной.
-- Финальный флаг считается в `flags` **до** бондов текущего выбора (`southEnding(s, style)` в `south.js`): лучший финал требует
-  `called_apa + cooked_boorsok + met_teacher + brought_kurut + bond_apa ≥ 4 + bond_erlan ≥ 2`. «Тихая гордость» — если обещание
-  было, но слова остались короткими; «Дастархан без вас» — если вечер прошёл мимо. `silent-gift` никогда не даёт лучший финал.
-- Апа на Юге — **Апа Гульмира** (`BD.bonds.apa.labels.south`), двоюродный брат — **Эрлан** (`bonds.erlan`). Предметы памяти:
-  «Курут в дорогу» (`kurutBag`), «Школьная записка» (`schoolNote`), «Лепёшка в дорогу» (`warmBread`).
-- Сцены: `school_evening` (вечерняя школа №61), `apa_kitchen` (үбөлүк, тесто, казан, курут, радиоприёмник),
-  `south_panorama` (закат над Асанбаем, огни города, скамейка, Ала-Тоо). Подложка `breeze` с комузом.
 
 ## Fail-forward (нет тупиковых Game Over)
 - **Деньги кончились** (`budget < 0`): движок вставляет районный разворот `BD.PIVOTS` с `pivotFor: 'broke'`
@@ -91,52 +52,22 @@
 - **Пропущен транспорт**: если завтрак затянулся (`cookedBreakfast`), общественный вариант на утреннем событии превращается
   в «ушла 195-я / ушёл автобус №7» (флаги `missed_195_marshrutka`, `missed_bus_7`) и запускает разворот `pivotFor: 'missed-ride'`.
   Игрок заранее видит предупреждение в описании варианта.
-- **Тихие финалы вместо Game Over**: при стрессе 100% (`burnout`) или энергии 0% (`exhaustion`) день не обрывается экраном поражения.
-  Игрок получает культурный финал и открытку памяти: уснул на тапчане — Апа Гуля укрыла курпачой; выдохнулся — чай на лестнице;
-  кончились деньги — двор накрыл стол без счёта. На Юге те же пороги ведут к своим открыткам: «Тапчан у апы» (уснули на тапчане
-  под курпачой), «Свет над Асанбаем» (выдохнулись на Панораме), «Чай у апы» (кошелёк опустел, апа всё равно накрыла стол).
-  Тексты и подбор — в `BD.pickSoftPostcard` (`story.js`), показ — `showGameOver` в `game.js`.
-- Банкротства как отдельного финала нет: долг (`state.debt`, флаг `inDebt`, +6 стресса) продолжает день, а `broke/bankrupt` ведёт к тихой открытке.
+- Остаются только финалы «Выгорание» (стресс 100%) и «Истощение» (энергия 0%). Банкротства как финала нет.
 - Разворот описывается в `BD.PIVOTS`: `{ id, pivotFor, districts, pivot: true, time: 0, scene, place, kicker, title, text, choices }`.
 
-## Открытки, отношения, глоссарий и паузы
-- Три финала Востока-5 — коллекционные открытки: «Двор как семья» (`ending-family`), «Кухня на двоих» (`ending-kitchen`),
-  «Сюрприз для всех, кроме именинника» (`ending-surprise`). Три финала Юга — «Бата получена» (`endingBata`, домашний боорсок,
-  учительница, курут и высокие отношения), «Тихая гордость» (`endingPride`, помогли, но сказали меньше), «Дастархан без вас»
-  (`endingNoTable`, быстро/поздно/пусто — апа молча подвинула чай). У каждой есть `bata`, `scene` и собранные `items`.
-- `postcardElement` в `game.js` рисует открытку из `BD.POSTCARDS` + SVG-иллюстрацию (`postcardArt`); альбом хранится в
-  `localStorage` под ключом `bd_postcards_v1` (до 12 карточек), доступен с интро и с итогов.
-- `BD.GLOSSARY` — короткие пояснения (ашар, бата, дастархан, боорсок, үбөлүк, курут, саркыт, курпача, тапчан…). Текст автоматически оборачивается
-  в `.glossary-term` с подсказкой при наведении/фокусе — только первое вхождение, без вложенной разметки.
-- `BD.BONDS` и `BD.MEMORY` — определения с иконкой и подсказкой. Счётчики показываются чипами в карточке события,
-  на итогах и в альбоме; выбор заранее показывает `+Родители`, `Курут` и т. п.
-- `vignette` у события — 15-секундная атмосферная пауза (`.vignette`), прогресс-бар на CSS, кнопка «Не ждать»,
-  повторно не показывается (`vignettesShown`).
-- Реплики: `dialogue: [{ who, text }]` — имя говорящего отдельной колонкой, без «сказал(а)» в тексте.
-- `kickerText` подставляет реальное время HUD в начало кикера, чтобы «19:52 · Пятый этаж» не спорило с часами после
-  длинных выборов. Авторское время остаётся в данных события.
-
-## Звук
-- `js/audio.js` держит `AudioContext`, громкость (`bd_volume`) и mute (`bd_muted`). Подложки: `home`, `courtyard`,
-  `stairwell`, `market`, `street`, `day`, `breeze`; дождь включается погодой, комуз — во дворе, на лестнице, на кухне апы
-  и в сцене `breeze` (Панорама, вечерняя школа, южная дорога). `breeze` — мягкий ветер плюс пентатоника комуза.
-- Комуз синтезируется Карплусом-Стронгом (пентатоника), без внешних файлов. Чтобы подключить живую запись, достаточно
-  задать `BD.KOMUZ_URL = 'audio/komuz.ogg'` до запуска — `useKomuzFile` подхватит её и будет включать по сцене.
 ## Как добавлять контент
-1. Событие — в `BD.EVENTS` или `BD.DISTRICT_EVENTS` своего района (`js/events/vostok5.js`, `south.js`, `center.js`, `shared.js`); список сортируется по `time`.
-2. Новая сцена — метод `drawX` в `renderer.js` + ветка в `draw()` (плюс `SCENE_ICON`/`ambienceFor`, если нужен свой звук); вывески через `this.sign` / `fitText`.
-3. Новый флаг со статус-чипом — запись в `BD.STATUS`; отношения и предметы — в `BD.BONDS` / `BD.MEMORY`.
-4. После правок: `node --check js/*.js js/events/*.js`, Node-симуляция (нет тупиков, нет отрицательного бюджета на старте события),
-   headless Chrome (Puppeteer/Playwright) на 1920×910, 1366×650, 1280×720 — все три финала, тихие финалы, альбом, без ошибок
-   в консоли, без горизонтального скролла и без перекрытия вывесок карточкой.
+1. Событие — в `BD.EVENTS` (в модуле района до `finalize.js`; список сортируется по `time`).
+2. Новая сцена — метод `drawX` в `renderer.js` + ветка в `draw()`; вывески через `this.sign` / `fitText`.
+3. Новый флаг со статус-чипом — запись в `BD.STATUS`.
+4. После правок: `node --check js/*.js`, Node-симуляция (нет тупиков, нет отрицательного бюджета на старте события),
+   headless Chrome (Playwright) на 1920×910, 1366×650, 1280×720 — без ошибок в консоли и без перекрытия вывесок карточкой.
 
 ## Переходы между локациями
 - Выбор с `scene` (и `sceneLabel`) **сразу** меняет сцену на экране (`choose()` в `game.js`), не дожидаясь следующей карточки.
 - Выбор с `pivot: '<id>'` ставит в очередь разворот `BD.PIVOTS` с `pivotFor: '<id>'` — динамическое событие в этой локации
   (пример: `visit-parents` → сцена `parents_home` → разворот `parents-visit`: саркыт / помочь отцу / допить чай, флаги `gotSarkyt`, `helpedDad`;
   саркыт даёт бесплатный ужин `eat-sarkyt`). Счётчик «N / M» остаётся на базовом событии.
-- Сцены: `home, traffic, school, school_evening, office, bazaar, evening, park, courtyard, stairwell, kitchen_night, apa_kitchen, south_panorama, mall, parents_home`. Интерьеры без дождя.
-- `family-evening` на Востоке-5 заменён сюжетными `vostok-stairwell` / `vostok-ashar` / `vostok-kitchen`; их `kicker` показывает реальное время HUD, а не только авторское.
+- Сцены: `home, traffic, school, office, bazaar, evening, park, courtyard, mall, parents_home`. Интерьеры без дождя.
 
 ## Бюджет
 - `Engine.resolveChoice` блокирует платный вариант, если `-fx.money > budget` (`unaffordable`, причина «Нужно N сом, а у вас M»,
@@ -164,9 +95,61 @@
   Суюмбаева, проспект Чуй.
 - **Школа (`drawSchool`)**: синяя адресная табличка над входом (`schoolPlaque()`): юг «ШКОЛА № 61», центр «ШКОЛА № 13», Восток-5 — без номера
   («ШКОЛА · МКР. ВОСТОК-5», номер не проверен). Во дворе турники и баскетбольное кольцо (`drawYardSports`). Не заходить под карточку выбора (x ≳ 700).
-  Сцена `school_evening` (юг, 19:45) — та же школа на закате: пустой двор, турники, кольцо, табличка «ШКОЛА № 61 · АСАНБАЙ»,
-  Ала-Тоо в сумерках; используется событием `south-trolley`, где троллейбус проходит мимо школы.
 - **Комната родителей (`parents_home`)** — традиционная кыргызская гостиная: туш-кийиз с куполом и узором «кочкор мүйүз» над диваном, шырдак
   (красно-сине-чёрно-белый, зигзаг по краю), сандык со стопкой тёшөков и подушками (жүк), дасторкон с пиалами, чайником, нан и боорсоками;
   папа — ак калпак и чапан, мама — жоолук и кемсел. Хелперы `hornSpiral`/`hornPair`. Важное — правее x≈700 (слева карточка).
 
+
+## Сюжетный слой (Восток-5 «Двор, где всё про всех»)
+- **Диалоги**: абзац `@Имя: реплика` в `text`/`result` рисуется как реплика с подписью. Абзацы разделяются `\n\n`.
+- **Связи** (`ch.bonds: { apa, bakyt, aksakal, parents }`, 0–5) и **предметы памяти** (`ch.items: ['kurut','note','photo','cassette']`) показываются тихими чипами и бейджами выбора; ими открываются/закрываются варианты через `when(s)` (`s.bond('apa')`, `s.hasItem('note')`).
+- **Виньетки**: `vignette: 15` в событии — 15 секунд тишины, полоса таймера, затем автоматический выбор первого варианта; клик ускоряет. Тесты могут сократить время: `BD.VIGNETTE_MS = 1200`.
+- **Звук**: `ev.ambient` (room/city/courtyard/kitchen/stairwell/park/market), иначе по сцене; дождь только на улице. `ev.motif`/`ch.motif`: nostalgia / warm / bata / lullaby. Реальный комуз: `BD.AUDIO_TRACKS = { nostalgia: 'audio/komuz.mp3' }` до загрузки `audio.js` (при ошибке загрузки — откат на синтез).
+- **Глоссарий**: слова из `BD.GLOSSARY` подчёркнуты точками, подсказка по hover/focus. Новое слово — запись `{ re, term, def }`.
+- **Открытки**: `BD.POSTCARDS` (3 финала маршрута) и `BD.SOFT_ENDINGS` (мягкие концовки вместо Game Over: энергия 0 → «Уснули на тапчане», стресс 100 → «Чай у Касым-ата»; для других районов — `_default`). Коллекция в `localStorage.bd_postcards`. Финал выбирается флагами `routeDvor` / `routeKukhnya` / `routeSyurpriz`.
+- **Сцены**: `courtyard` с `sceneLabel`/`variant` `dusk|ashar|surprise|sleep` (двор на Мамбетова: тапчан, урюк, бетонный арык, гирлянды, казан), `stairwell`, `kitchen_night` (`tea|window`). Интерьеры без дождя.
+- Район-фильтр: `excludeDistricts` отключает базовые вечерние события в Востоке-5 (их заменяет сюжет).
+
+## Подтверждено автором (культура и карта)
+- **Ашар** — точно и тепло: соседи собираются во дворе. **Бата, саркыт, курут, төшөк, курпача, тапчан** используем в точных значениях (см. глоссарий).
+- В центре и в старых дворах (в т. ч. Восток-5) — **бетонные арыки и урюк** (абрикос).
+- Для южного закатного обзора (позже): холмы над **Асанбаем / «Панорама»**.
+- Кыргызские фразы в бата держим минимальными (Оомин, ак бата); остальной текст — по-русски.
+
+## Юг (`south`) · «Бата на дорогу» — реализован (рядом с `vostok5`)
+- Модуль `js/events/districts/south-story.js`. Эрлан (двоюродный брат) завтра улетает; Апа (старшая сестра отца) готовит дастархан; аксакал — Сапар-ата.
+  Биты: `s-call` 07:40 (звонок Апы) → `s-school` 15:55 (школа № 61, Роза Жумабековна, золотой час) → `s-bazaar` 16:40 (Орто-Сай: настоящие боорсоки vs готовые) →
+  `s-vignette-bus` 17:15 (виньетка 15 с: Ала-Тоо розовеют из окна автобуса на Юнусалиева) → `s-kitchen` / `s-kitchen-alone` 17:40 (кухня Апы или «Апа всё накрыла сама») →
+  `s-table` 18:40 (слово перед батой) → `s-panorama` 19:15 (холмы над Асанбаем, Панорама).
+- Флаги: `calledApa`, `brushedApa`, `metTeacher`, `broughtKurut`, `cookingReady`, `cookedBoorsok`, `skippedBazaar`, `apaSetAlone`, `spokeHeart`; связи `apa`, `erlan`, `aksakal` (подписи по району: `BD.bondInfo(key, district)`).
+- Предметы памяти: `kurutbag` (мешочек курута), `schoolnote` (школьная записка), `lepeshka` (лепёшка в дорогу).
+- Финалы (`BD.southEndingKey`): **«Бата получена»** (`bata`: не «одна», сварены боорсоки, встретили учительницу, курут, сказали слово, `apa ≥ 2`, `erlan ≥ 2`), **«Тихая гордость»** (`gordost`), **«Дастархан без вас»** (`bez-vas`: отказ, пропущенный рынок или приход после 19:15).
+- Мягкие концовки юга: `SOFT_ENDINGS.exhaustion.south` (тапчан и курпача у Апы), `burnout.south` (чай на кухне Апы).
+- Сцены: `apa_kitchen` (`set` | `tea`), `school_evening` (`drawSchool` в золотом часе), `south_panorama`. Звуковой профиль `hill`.
+- Базовые вечерние события и `bazaar` исключены для юга (`excludeDistricts`). `Engine.start` пропускает неподходящие району стартовые события.
+- Трамваев/троллейбусов в игре нет (см. гео-правило): виньетка едет на автобусе. «Скалку» пишем по-русски (киргизское слово не подтверждено).
+
+## Центр (`center`) · «Фрунзе в кармане» — реализован
+- Модуль `js/events/districts/center-story.js` (после `center.js`). Дедушкин пиджак → сепийное фото со штампом ателье «Фрунзе» и запиской → мелодия на комузе.
+  Биты: `c-discovery` 07:40 → `c-erkindik` 12:50 (букинист на Эркиндике; Эркиндик — бывшая ул./бульвар Дзержинского, переименована в 1991, район зовут «Дзержинка») →
+  `c-vignette-bench` 14:00 (виньетка 15 с, скамейка под дубами) → `c-oak-park` 14:30 (Дубовый парк, аксакалы за шахматами; официально парк Айтматова с 2008, говорят «Дубовый») →
+  `c-nurlan` 16:40 (одноклассник Нурлан) → `c-memory-corner` 17:20 (комната деда Нурлана) → `c-dusk` 18:10 (Ала-Тоо, ЦУМ «Айчурек», дилемма двор/работа) →
+  `c-vignette-aryk` 19:50 (арык, виньетка) → `c-courtyard-live` 20:00 / `c-courtyard-late` 20:30 (если пришли позже) / `c-city-work` 21:00 (если остались на работе).
+- Флаги: `foundPhoto`, `learnedStreet`, `askedAksakal`, `walkedThroughPark`, `metClassmate`, `keptCassette`, `goToCourtyard`, `arriveLate`, `workTookEvening`; связи `memory`, `nurlan`, `aksakal` («Аксакалы парка»).
+- Предметы: `frunzephoto`, `melodytape`, `erkpostcard`. Глоссарий: `комуз`.
+- Финалы (`BD.centerEndingKey`): **«Песня вернулась»** (`pesnya`), **«Фотография в кармане»** (`foto-v-karmane`), **«Город без тебя»** (`gorod-bez-tebya`, при `workTookEvening`).
+  Мягкие: `SOFT_ENDINGS.exhaustion.center` (уснули на тапчане под курпачой), `burnout.center` (тишина и кассета).
+- Сцены: `old_center_courtyard` (`dusk|live|tape|sleep`: арык с блеском, урюк, тапчан с курпачами, самовар), `memory_corner` (интерьер, без дождя), `alatoo_twilight` (`alone` — тихие фонтаны, проезжает машина). Звуковой профиль `aryk` (вода арыка + мотив).
+- Старые события `dubovy-park` и `old-classmate` выведены (`districts: []`); разворот `broke-center` по-прежнему ставит `walked_through_park` / `metClassmate` / `owesNurlan`.
+- Базовые вечерние события исключены для центра (`excludeDistricts`), `bazaar` остаётся.
+
+## Статус сюжетных линий: все три завершены
+**Восток-5 «Двор, где всё про всех» ✔ · Южные микрорайоны «Бата на дорогу» ✔ · Центр «Фрунзе в кармане» ✔.** Всего 9 маршрутных открыток + мягкие концовки, коллекция `bd_postcards` (17 id).
+
+## Итоговая сборка (сравнение с версией DeepSeek)
+- **Живые предметы**: `js/events/hotspots.js` (`BD.HOTSPOTS`, `BD.hotspotAt`) — подсказка при наведении/тапе на комуз, фото в раме, курут, самовар, арык и т. д. (сцены `memory_corner`, `old_center_courtyard`, `alatoo_twilight`, `apa_kitchen`, `courtyard`). Координаты — виртуальные 1600×900.
+- **Кочкор мүйүз**: узор рога на кромке `.event-card` и `.pc-card` (CSS, SVG data-URI).
+- **Альбом открыток**: кнопка на старте (`#albumBtn`), все 17 открыток, закрытые — заглушками; хранится в `localStorage.bd_postcards`.
+- **Востока-5, алиасы флагов из дизайн-документа**: `gatheredNeighbors`, `bakytHelps`, `borrowedTable`, `surpriseLeaked`.
+- **Отвергнуто из версии DeepSeek**: троллейбус на Юге (в городе их нет), недоделанный Центр (только парк и Нурлан).
+- Мобильный вид 390×844: превью последствий выбора не обрезается (`max-height: none`).
